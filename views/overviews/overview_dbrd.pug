@@ -47,10 +47,10 @@ block content
 
   script(src='/js/leaflet.js')
   script.  
-    var data = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
-    for (var i in data) {
+    let data = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
+    for (let i in data) {
       // Karte definieren
-      var map = L.map('map'+data[i].uuid, {
+      let map = L.map('map'+data[i].uuid, {
         zoomControl: false
       });
       // Layer der Karte
@@ -60,7 +60,7 @@ block content
           attribution: '!{map_attribution}'
         }).addTo(map);
       // Karte setzen
-      var geojson = L.geoJSON(JSON.parse(data[i].wgs84_area)).addTo(map);
+      let geojson = L.geoJSON(JSON.parse(data[i].wgs84_area)).addTo(map);
       map.fitBounds(geojson.getBounds());
       map.setZoom(13);
     };    

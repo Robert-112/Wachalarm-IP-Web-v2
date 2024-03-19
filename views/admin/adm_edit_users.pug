@@ -90,7 +90,7 @@ block content
 
   script.
     $('#formModal').trigger("reset");
-    var addUser = function() {
+    let addUser = function() {
       $('#formModal').trigger("reset");
       $("#userModalTitle").text("neuen Benutzer hinzufügen");
       $("#modal_method").val("ADDNEW");
@@ -100,7 +100,7 @@ block content
       $("#UserPassword").prop("required", true);
       $('#userModal').modal('show');
     }
-    var EditUser = function(current_user) {
+    let EditUser = function(current_user) {
       $('#formModal').trigger("reset");
       $("#userModalTitle").text("Benutzer bearbeiten");
       $("#modal_method").val("EDIT");

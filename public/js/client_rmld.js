@@ -3,7 +3,7 @@
 /* ########################### */
 
 // Karte definieren
-var map = L.map('map', {
+let map = L.map('map', {
   zoomControl: false
 }).setView([51.733005, 14.338048], 13);
 
@@ -16,7 +16,7 @@ mapLink = L.tileLayer(
   }).addTo(map);
 
 // Icon der Karte zuordnen
-var redIcon = new L.Icon({
+let redIcon = new L.Icon({
   iconUrl: '/media/marker-icon-2x-red.png',
   shadowUrl: '/media/marker-shadow.png',
   iconSize: [25, 41],
@@ -26,7 +26,7 @@ var redIcon = new L.Icon({
 });
 
 // Icon setzen
-var marker = L.marker(new L.LatLng(0, 0), {
+let marker = L.marker(new L.LatLng(0, 0), {
   icon: redIcon
 }).addTo(map);
 
@@ -38,7 +38,7 @@ if (einsatzdaten_obj.wgs84_x && einsatzdaten_obj.wgs84_y) {
   }).addTo(map);
   map.setView(new L.LatLng(einsatzdaten_obj.wgs84_x, einsatzdaten_obj.wgs84_y), 13);
 } else {
-  var geojson = L.geoJSON(JSON.parse(einsatzdaten_obj.wgs84_area)).addTo(map);
+  let geojson = L.geoJSON(JSON.parse(einsatzdaten_obj.wgs84_area)).addTo(map);
   map.fitBounds(geojson.getBounds());
   map.setZoom(13);
 };
@@ -49,18 +49,18 @@ if (einsatzdaten_obj.wgs84_x && einsatzdaten_obj.wgs84_y) {
 
 
 // Split timestamp into [ Y, M, D, h, m, s ]
-var t1 = einsatzdaten_obj.zeitstempel.split(/[- :]/);
-var d = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]);
+let t1 = einsatzdaten_obj.zeitstempel.split(/[- :]/);
+let d = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]);
 
 // Zeitwerte
-var curr_day = d.getDay();
-var curr_date = d.getDate();
-var curr_month_id = d.getMonth();
+let curr_day = d.getDay();
+let curr_date = d.getDate();
+let curr_month_id = d.getMonth();
 curr_month_id = curr_month_id + 1;
-var curr_year = d.getFullYear();
-var curr_hour = d.getHours();
-var curr_min = d.getMinutes();
-var curr_sek = d.getSeconds();
+let curr_year = d.getFullYear();
+let curr_hour = d.getHours();
+let curr_min = d.getMinutes();
+let curr_sek = d.getSeconds();
 // Tag und Monat Anpassen
 if ((String(curr_date)).length == 1)
   curr_date = '0' + curr_date;
@@ -76,8 +76,8 @@ if (curr_hour <= 9) {
 if (curr_sek <= 9) {
   curr_sek = '0' + curr_sek;
 };
-var curr_month = d.getMonth();
-var curr_year = d.getFullYear();
+let curr_month = d.getMonth();
+let curr_year = d.getFullYear();
 
 // Datum und Uhrzeit setzen
 $("#einsatz_datum").text(curr_date + '.' + curr_month_id + '.' + curr_year);
@@ -99,7 +99,7 @@ $('#rueckmeldung').each(function(index) {
 /* ########################### */
 
 // Websocket
-//var socket = io.connect();
+//let socket = io.connect();
 
 // Wachen-ID bei Connect an Server senden
 /*socket.on('connect', function() {

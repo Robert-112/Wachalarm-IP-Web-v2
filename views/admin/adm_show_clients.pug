@@ -27,7 +27,7 @@ block content
                 th Client-Status (Einsazt-ID)
 
   script.
-    var datasets = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
+    let datasets = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
     $(document).ready(function() {
       $('#table_active_user').DataTable( {
         "data": datasets,

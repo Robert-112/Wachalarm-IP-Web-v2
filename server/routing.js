@@ -6,14 +6,12 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Startseite
   app.get('/', function (req, res) {
-    sql.db_einsatz_count_all(function (data) {
       res.render('home', {
         public: app_cfg.public,
         title: 'Startseite',
         anzahl_einsaetze: data,
         user: req.user
       });
-    });
   });
 
   // Ueber die Anwendung
@@ -53,7 +51,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // API
   app.get('/api', function (req, res, next) {
-    var err = new Error('Sie sind nicht berechtigt diese Seite aufzurufen!');
+    let err = new Error('Sie sind nicht berechtigt diese Seite aufzurufen!');
     err.status = 403;
     next(err);
   });
@@ -112,13 +110,14 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
         public: app_cfg.public,
         title: 'Einstellungen',
         user: req.user,
-        reset_counter: data
+        reset_counter: data.reset_counter
       });
     });
   });
 
   // Einstellungen speichern
   app.post('/config', auth.ensureAuthenticated, function (req, res) {
+    // TODO -> gibt Info.changes zurück, nicht null
     sql.db_user_set_config(req.user.id, req.body.set_reset_counter, function (data) {
       res.redirect('/config');
     });
@@ -142,7 +141,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Alarmmonitor aufloesen /waip/<wachennummer>
   app.get('/waip/:wachen_id', function (req, res, next) {
-    var parmeter_id = req.params.wachen_id;
+    let parmeter_id = req.params.wachen_id;
     sql.db_wache_vorhanden(parmeter_id, function (wache) {
       if (wache) {
         res.render('waip', {
@@ -156,7 +155,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
           user: req.user
         });
       } else {
-        var err = new Error('Wache ' + parmeter_id + ' nicht vorhanden!');
+        let err = new Error('Wache ' + parmeter_id + ' nicht vorhanden!');
         err.status = 404;
         next(err);
       };
@@ -175,7 +174,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
         if (data) {
           res.redirect('/dbrd/' + data);
         } else {
-          var err = new Error('Dashboard oder Einsatz nicht (mehr) vorhanden!');
+          let err = new Error('Dashboard oder Einsatz nicht (mehr) vorhanden!');
           err.status = 404;
           next(err);
         };
@@ -196,7 +195,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Dasboard fuer einen Einsatz
   app.get('/dbrd/:dbrd_uuid', function (req, res, next) {
-    var dbrd_uuid = req.params.dbrd_uuid;
+    let dbrd_uuid = req.params.dbrd_uuid;
     sql.db_einsatz_check_uuid(dbrd_uuid, function (wache) {
       if (wache) {
         res.render('dbrd', {
@@ -209,7 +208,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
           user: req.user
         });
       } else {
-        var err = new Error('Dashboard oder Einsatz nicht (mehr) vorhanden!');
+        let err = new Error('Dashboard oder Einsatz nicht (mehr) vorhanden!');
         err.status = 404;
         next(err);
       };
@@ -222,7 +221,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Rueckmeldungs-Aufruf ohne waip_uuid eblehnen
   app.get('/rmld', function (req, res, next) {
-    var err = new Error('Rückmeldungen sind nur mit gültiger Einsatz-ID erlaubt!');
+    let err = new Error('Rückmeldungen sind nur mit gültiger Einsatz-ID erlaubt!');
     err.status = 404;
     next(err);
   });
@@ -234,8 +233,8 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Rueckmeldung anzeigen /rueckmeldung/waip_uuid/rmld_uuid
   app.get('/rmld/:waip_uuid/:rmld_uuid', function (req, res, next) {
-    var waip_uuid = req.params.waip_uuid;
-    var rmld_uuid = req.params.rmld_uuid;
+    let waip_uuid = req.params.waip_uuid;
+    let rmld_uuid = req.params.rmld_uuid;
     sql.db_einsatz_get_by_uuid(waip_uuid, function (einsatzdaten) {
       if (einsatzdaten) {
         sql.db_user_check_permission(req.user, einsatzdaten.id, function (valid) {
@@ -259,7 +258,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
           });
         });
       } else {
-        var err = new Error('Der angefragte Einsatz ist nicht - oder nicht mehr - vorhanden!');
+        let err = new Error('Der angefragte Einsatz ist nicht - oder nicht mehr - vorhanden!');
         err.status = 404;
         next(err);
       };
@@ -269,11 +268,11 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
   // Rueckmeldung entgegennehmen
   app.post('/rmld/:waip_uuid/:rmld_uuid', function (req, res) {
     // Remote-IP erkennen, fuer Fehler-Auswertung
-    var remote_ip = req.headers["x-real-ip"] || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    let remote_ip = req.headers["x-real-ip"] || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     // auf Saver verweisen
     saver.save_new_rmld(req.body, remote_ip, 'web', function (saved) {
-      var waip_uuid = req.body.waip_uuid;
-      var rmld_uuid = req.body.rmld_uuid;
+      let waip_uuid = req.body.waip_uuid;
+      let rmld_uuid = req.body.rmld_uuid;
       if (saved) {
         req.flash('successMessage', 'Rückmeldung erfolgreich gesendet, auf zum Einsatz!');
         res.redirect('/rmld/' + waip_uuid + '/' + rmld_uuid);
@@ -314,7 +313,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // Logdatei
   app.get('/adm_show_log', auth.ensureAdmin, function (req, res) {
-    sql.db_log_get_5000(function (data) {
+    sql.db_log_get_10000(function (data) {
       res.render('admin/adm_show_log', {
         public: app_cfg.public,
         title: 'Log-Datei',
@@ -416,7 +415,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, udp, saver
 
   // 404 abfangen und an error handler weiterleiten
   app.use(function (req, res, next) {
-    var err = new Error('Seite nicht gefunden!');
+    let err = new Error('Seite nicht gefunden!');
     err.status = 404;
     next(err);
   });

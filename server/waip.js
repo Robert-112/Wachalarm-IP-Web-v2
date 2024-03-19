@@ -16,10 +16,10 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
         if (socket_rooms.length > 1) {
           socket_rooms.forEach(function (rooms) {
             // fuer jede Wache(rooms.room) die verbundenen Sockets(Clients) ermitteln und den Einsatz verteilen
-            var room_sockets = io.nsps['/waip'].adapter.rooms[rooms.room];
+            let room_sockets = io.nsps['/waip'].adapter.rooms[rooms.room];
             if (typeof room_sockets !== 'undefined') {
               Object.keys(room_sockets.sockets).forEach(function (socket_id) {
-                var socket = io.of('/waip').connected[socket_id];
+                let socket = io.of('/waip').connected[socket_id];
                 waip_verteilen(waip_id, socket, rooms.room);
                 sql.db_log('WAIP', 'Einsatz ' + waip_id + ' wird an ' + socket.id + ' (' + rooms.room + ') gesendet');
               });
@@ -28,6 +28,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
         } else {
           // wenn kein Raum (keine Wache) ausser '0' zurueckgeliefert wird, dann Einsatz direkt wieder loeschen weil keine Wachen dazu hinterlegt
           sql.db_log('Fehler-WAIP', 'Fehler: Keine Wache für den Einsatz mit der ID ' + waip_id + ' vorhanden! Einsatz wird gelöscht!');
+          // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
           sql.db_einsatz_loeschen(waip_id);
         };
       });
@@ -50,7 +51,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
 
   function waip_verteilen(waip_id, socket, wachen_nr) {
     // Einsatzdaten für eine Wache aus Datenbank laden und an Client verteilen
-    var user_obj = socket.request.user;
+    let user_obj = socket.request.user;
     sql.db_einsatz_get_by_waipid(waip_id, wachen_nr, user_obj.id, function (einsatzdaten) {
       if (einsatzdaten) {
         // Berechtigung des Users ueberpruefen
@@ -64,7 +65,24 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
             einsatzdaten.wgs84_y = '';
           };
           // pruefen ob Einsatz bereits genau so beim Client angezeigt wurde (Doppelalarmierung)
+          // TODO bringt jetzt eine Anzahl als result zurück
           sql.db_einsatz_check_history(waip_id, einsatzdaten, socket.id, function (result) {
+
+            /* aus sql_qry
+             // wenn History-Daten hinterlegt sind, dann prüfen ob sich etwas verändert hat
+          let changed;
+          if (
+            uuid_einsatzdaten !== row.uuid_einsatz_grunddaten ||
+            uuid_em_alarmiert !== row.uuid_em_alarmiert
+          ) {
+            // Grunddaten oder alarmierte Einsatzmittel haben sich verändert, somit History veraltet und neue Alarmierung notwendig
+            changed = false;
+          } else {
+            // relevante Daten haben sich nicht geändert
+            changed = true;
+          }
+          */
+
             if (!result) {
               // Einsatz an Client senden
               socket.emit('io.new_waip', einsatzdaten);
@@ -101,7 +119,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
         if (socket_rooms) {
           socket_rooms.forEach(function (row) {
             // fuer jede Wache(row.room) die verbundenen Sockets(Clients) ermitteln und Standby senden
-            var room_sockets = io.nsps['/waip'].adapter.rooms[row.room];
+            let room_sockets = io.nsps['/waip'].adapter.rooms[row.room];
             if (typeof room_sockets !== 'undefined') {
               Object.keys(room_sockets.sockets).forEach(function (socket_id) {
                 // wenn Raum zum Einsatz aufgerufen ist, dann Rueckmeldung aus DB laden und an diesen versenden
@@ -110,7 +128,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
                     // Rückmeldung an Clients/Räume senden, wenn richtiger Einsatz angezeigt wird
                     sql.db_client_check_waip_id(socket_id, waip_id, function (same_id) {
                       if (same_id) {
-                        var socket = io.of('/waip').connected[socket_id];
+                        let socket = io.of('/waip').connected[socket_id];
                         socket.emit('io.new_rmld', rmld_obj);
                         sql.db_log('RMLD', 'Rückmeldung ' + rmld_uuid + ' für den Einsatz mit der ID ' + waip_id + ' an Wache ' + row.room + ' gesendet.');
                         sql.db_log('DEBUG', 'Rückmeldung JSON: ' + JSON.stringify(rmld_obj));
@@ -131,7 +149,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
             if (rmld_obj) {
               // Rückmeldung an Dashboards senden
               dbrd_sockets.forEach(function (row) {
-                var socket = io.of('/dbrd').connected[row.socket_id];
+                let socket = io.of('/dbrd').connected[row.socket_id];
                 socket.emit('io.new_rmld', rmld_obj);
                 sql.db_log('RMLD', 'Rückmeldung ' + rmld_uuid + ' für den Einsatz mit der ID ' + waip_id + ' an Dashboard ' + waip_uuid + ' gesendet.');
                 sql.db_log('DEBUG', 'Rückmeldung JSON: ' + JSON.stringify(rmld_obj));
@@ -192,26 +210,27 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
 
   function tts_erstellen(app_cfg, socket_id, einsatzdaten, callback) {
     // unnoetige Zeichen aus socket_id entfernen, um diese als Dateinamen zu verwenden
-    var id = socket_id.replace(/\W/g, '');
+    let id = socket_id.replace(/\W/g, '');
     // Pfade der Sound-Dateien defeinieren
-    var wav_tts = process.cwd() + app_cfg.global.soundpath + id + '.wav';
-    var mp3_tmp = process.cwd() + app_cfg.global.soundpath + id + '_tmp.mp3';
-    var mp3_tts = process.cwd() + app_cfg.global.soundpath + id + '.mp3';
-    var mp3_url = app_cfg.global.mediapath + id + '.mp3';
+    let wav_tts = process.cwd() + app_cfg.global.soundpath + id + '.wav';
+    let mp3_tmp = process.cwd() + app_cfg.global.soundpath + id + '_tmp.mp3';
+    let mp3_tts = process.cwd() + app_cfg.global.soundpath + id + '.mp3';
+    let mp3_url = app_cfg.global.mediapath + id + '.mp3';
     // unterscheiden des Alarmgongs nach Einsatzart
     if (einsatzdaten.einsatzart == "Brandeinsatz" || einsatzdaten.einsatzart == "Hilfeleistungseinsatz") {
-      var mp3_bell = process.cwd() + app_cfg.global.soundpath + 'bell_long.mp3';
+      let mp3_bell = process.cwd() + app_cfg.global.soundpath + 'bell_long.mp3';
     } else {
-      var mp3_bell = process.cwd() + app_cfg.global.soundpath + 'bell_short.mp3';
+      let mp3_bell = process.cwd() + app_cfg.global.soundpath + 'bell_short.mp3';
     };
     // Zusammensetzen der Sprachansage
+    // TODO db_tts_einsatzmittel -> Resolve bringt nur noch ein Argument!
     async.map(JSON.parse(einsatzdaten.em_alarmiert), sql.db_tts_einsatzmittel, function (err, einsatzmittel) {
       // Grunddaten
-      var tts_text = einsatzdaten.einsatzart + ', ' + einsatzdaten.stichwort;
+      let tts_text = einsatzdaten.einsatzart + ', ' + einsatzdaten.stichwort;
       if (einsatzdaten.objekt) {
-        var tts_text = tts_text + '. ' + einsatzdaten.objekt + ', ' + einsatzdaten.ort + ', ' + einsatzdaten.ortsteil;
+        let tts_text = tts_text + '. ' + einsatzdaten.objekt + ', ' + einsatzdaten.ort + ', ' + einsatzdaten.ortsteil;
       } else {
-        var tts_text = tts_text + '. ' + einsatzdaten.ort + ', ' + einsatzdaten.ortsteil;
+        let tts_text = tts_text + '. ' + einsatzdaten.ort + ', ' + einsatzdaten.ortsteil;
       };
       // Einsatzmittel
       tts_text = tts_text + '. Für ' + einsatzmittel.join(", ");
@@ -232,8 +251,8 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
         // Windows
         case 'win32':
           // Powershell
-          var proc = require('child_process');
-          var commands = [
+          let proc = require('child_process');
+          let commands = [
             // TTS-Schnittstelle von Windows ansprechen
             'Add-Type -AssemblyName System.speech;' +
             '$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer;' +
@@ -248,10 +267,10 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
             'rm ' + wav_tts + ';' +
             'rm ' + mp3_tmp + ';'
           ];
-          var options = {
+          let options = {
             shell: true
           };
-          var childD = proc.spawn('powershell', commands);
+          let childD = proc.spawn('powershell', commands);
           childD.stdin.setEncoding('ascii');
           childD.stderr.setEncoding('ascii');
           childD.stderr.on('data', function (data) {
@@ -266,8 +285,8 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
           // LINUX
         case 'linux':
           // bash
-          var proc = require('child_process');
-          var commands = [
+          let proc = require('child_process');
+          let commands = [
             // TTS-Schnittstelle SVOX PicoTTS
             '-c', `
             pico2wave --lang=de-DE --wave=` + wav_tts + ` \"` + tts_text + `\"
@@ -276,13 +295,13 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
             rm ` + wav_tts + `
             rm ` + mp3_tmp
           ];
-          var options = {
+          let options = {
             shell: true
           };
           if (app_cfg.global.development) {
             console.log(commands);
           };
-          var childD = proc.spawn('/bin/sh', commands);
+          let childD = proc.spawn('/bin/sh', commands);
           childD.stdin.setEncoding('ascii');
           childD.stderr.setEncoding('ascii');
           childD.on('exit', function (code, signal) {
@@ -311,7 +330,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
       // alle User-Einstellungen prüfen und ggf. Standby senden
       if (socket_ids) {
         socket_ids.forEach(function (row) {
-          var socket = io.of('/waip').connected[row.socket_id];
+          let socket = io.of('/waip').connected[row.socket_id];
           if (typeof socket !== 'undefined') {
             socket.emit('io.standby', null);
             socket.emit('io.stopaudio', null);
@@ -323,6 +342,9 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
     });
 
     sql.db_einsatz_get_old(app_cfg.global.time_to_delete_waip, function (waip) {
+      // FIXME war zuvor eine Schleife die zurückgeliefert wurde!!!!
+        // wurde in Version 2 geändert in ein Object, welches jetzt hier in einer Schleife abzuarbeiten ist
+
       // nach alten Einsaetzen suchen und diese ggf. loeschen
       if (waip) {
         sql.db_log('WAIP', 'Einsatz mit der ID ' + waip.id + ' ist veraltet und kann gelöscht werden.')
@@ -331,7 +353,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
           // TODO TEST: Dashboard-Trennen-Funktion testen
           if (socket_ids) {
             socket_ids.forEach(function (row) {
-              var socket = io.of('/dbrd').connected[row.socket_id];
+              let socket = io.of('/dbrd').connected[row.socket_id];
               if (typeof socket !== 'undefined') {
                 socket.emit('io.deleted', null);
                 sql.db_log('DBRD', 'Dashboard mit dem  Socket ' + socket.id + ' getrennt, da Einsatz gelöscht.');
@@ -345,11 +367,11 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
           if (data) {
             data.forEach(function (row) {
               // fuer jede Wache (row.room) die verbundenen Sockets(Clients) ermitteln und Standby senden
-              var room_sockets = io.nsps['/waip'].adapter.rooms[row.room];
+              let room_sockets = io.nsps['/waip'].adapter.rooms[row.room];
               if (typeof room_sockets !== 'undefined') {
                 Object.keys(room_sockets.sockets).forEach(function (socket_id) {
                   // Standby senden    
-                  var socket = io.of('/waip').connected[socket_id];
+                  let socket = io.of('/waip').connected[socket_id];
                   sql.db_client_check_waip_id(socket.id, waip.id, function (same_id) {
                     if (same_id) {
                       socket.emit('io.standby', null);
@@ -364,21 +386,21 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
           };
           sql.db_rmld_get_for_export(waip.einsatznummer, waip.uuid, function (full_rmld) {
             // beteiligte Wachen aus den Einsatz-Rueckmeldungen filtern
-            var arry_wachen = full_rmld.map(a => a.wache_nr);
+            let arry_wachen = full_rmld.map(a => a.wache_nr);
             sql.db_export_get_for_rmld(arry_wachen, function (export_data) {
               // SQL gibt ist eine Schliefe (db.each), fuer jedes Ergebnis wird eine CSV/Mail erstellt
               if (export_data) {
                 // je Export eine CSV erstellen, die nur die gewuenschten Rueckmeldungen enthaelt
-                var part_rmld = full_rmld.filter(obj => String(obj.wache_nr).startsWith(String(export_data.export_filter)));
+                let part_rmld = full_rmld.filter(obj => String(obj.wache_nr).startsWith(String(export_data.export_filter)));
                 // CSV-Spalten definieren
-                var csv_col = ['id', 'einsatznummer', 'waip_uuid', 'rmld_uuid', 'alias', 'einsatzkraft', 'maschinist', 'fuehrungskraft', 'agt', 'set_time', 'arrival_time', 'wache_id', 'wache_nr', 'wache_name'];
-                var opts = {
+                let csv_col = ['id', 'einsatznummer', 'waip_uuid', 'rmld_uuid', 'alias', 'einsatzkraft', 'maschinist', 'fuehrungskraft', 'agt', 'set_time', 'arrival_time', 'wache_id', 'wache_nr', 'wache_name'];
+                let opts = {
                   csv_col
                 };
                 try {
-                  var csv = parse(part_rmld, opts);
+                  let csv = parse(part_rmld, opts);
                   // CSV Dateiname und Pfad festlegen
-                  var csv_filename = export_data.export_name.replace(/[|&;$%@"<>()+,]/g, '');
+                  let csv_filename = export_data.export_name.replace(/[|&;$%@"<>()+,]/g, '');
                   csv_filename = csv_filename.replace(/ /g, "_");
                   csv_filename = 'einsatz_' + part_rmld[0].einsatznummer + '_export_' + csv_filename + '.csv';
                   csv_path = process.cwd() + app_cfg.rmld.backup_path;
@@ -402,10 +424,10 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
                   // CSV per Mail versenden, falls aktiviert
                   if (app_cfg.rmld.backup_to_mail) {
                     // pruefen ob Mail plausibel ist
-                    var validmail = /\S+@\S+\.\S+/;
+                    let validmail = /\S+@\S+\.\S+/;
                     if (validmail.test(export_data.export_recipient)) {
                       // Mail-Server
-                      var transport = nodemailer.createTransport({
+                      let transport = nodemailer.createTransport({
                         host: app_cfg.rmld.mailserver_host,
                         port: app_cfg.rmld.mailserver_port,
                         secure: app_cfg.rmld.secure_mail,
@@ -417,7 +439,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
                           rejectUnauthorized: app_cfg.rmld.unauthorized_mail
                         }
                       });
-                      var mail_message = {
+                      let mail_message = {
                         from: 'Wachalarm-IP-Web <' + app_cfg.rmld.mail_from + '>',
                         to: export_data.export_recipient,
                         subject: 'Automatischer Export Wachalarm-IP-Web - ' + export_data.export_name + ' - Einsatz ' + part_rmld[0].einsatznummer,
@@ -447,6 +469,7 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
             sql.db_rmld_loeschen(waip.uuid);
           });
           // alten Einsatz loeschen
+          // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
           sql.db_einsatz_loeschen(waip.id);
           sql.db_log('WAIP', 'Einsatz-Daten zu Einsatz ' + waip.id + ' gelöscht.');
         });
