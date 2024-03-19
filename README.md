@@ -1,4 +1,8 @@
-# 
+# Work in progress
+
+Dieses Projekt befindet sich derzeit im Umbau.
+
+Updates und Anpassungen werden in der [Projektübersicht](https://github.com/users/Robert-112/projects/1) gesammelt.
 
 ---
 
