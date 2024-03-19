@@ -21,7 +21,7 @@ block content
                 th Protokolltext
 
   script.
-    var datasets = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
+    let datasets = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
     $(document).ready(function() {
       $('#table_log').DataTable( {
         "data": datasets,

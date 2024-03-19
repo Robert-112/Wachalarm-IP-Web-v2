@@ -7,11 +7,11 @@ module.exports = function (io, sql, app_cfg, remote_api, saver) {
   if (app_cfg.api.enabled) {
 
     // Namespace API festlegen
-    var nsp_api = io.of('/api');
+    let nsp_api = io.of('/api');
 
     nsp_api.on('connection', function (socket) {
       // versuche Remote-IP zu ermitteln
-      var remote_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
+      let remote_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
 
       // Remote-Verbindung nur zulassen, wenn IP in Access-List, und Access-List ueberhaupt befuellt
       if (!app_cfg.api.access_list.includes(remote_ip) && app_cfg.api.access_list.length > 0) {
@@ -26,8 +26,8 @@ module.exports = function (io, sql, app_cfg, remote_api, saver) {
 
       // Neuen Einsatz speichern
       socket.on('from_client_to_server_new_waip', function (raw_data) {
-        var data = raw_data.data;
-        var app_id = raw_data.app_id;
+        let data = raw_data.data;
+        let app_id = raw_data.app_id;
         // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
         if (app_id != app_cfg.global.app_id) {
           saver.save_new_waip(data, remote_ip, app_id);
@@ -41,11 +41,11 @@ module.exports = function (io, sql, app_cfg, remote_api, saver) {
 
       // neue externe Rueckmeldung speichern 
       socket.on('from_client_to_server_new_rmld', function (raw_data) {
-        var data = raw_data.data;
-        var app_id = raw_data.app_id;
+        let data = raw_data.data;
+        let app_id = raw_data.app_id;
         // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
         if (app_id != app_cfg.global.app_id) {
-          saver.save_new_rmld(data, remote_ip, app_id, function (result) {
+          saver.(data, remote_ip, app_id, function (result) {
             if (!result) {
               sql.db_log('API', 'Fehler beim speichern der Rückmeldung von ' + remote_ip + ': ' + JSON.stringify(data));
             };
@@ -86,8 +86,8 @@ module.exports = function (io, sql, app_cfg, remote_api, saver) {
 
     // neuer Einsatz vom Endpoint-Server
     remote_api.on('from_server_to_client_new_waip', function (raw_data) {
-      var data = raw_data.data;
-      var app_id = raw_data.app_id;
+      let data = raw_data.data;
+      let app_id = raw_data.app_id;
       // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
       if (app_id != app_cfg.global.app_id) {
         // nicht erwuenschte Daten ggf. enfernen (Datenschutzoption)
@@ -102,8 +102,8 @@ module.exports = function (io, sql, app_cfg, remote_api, saver) {
 
     // neue Rückmeldung vom Endpoint-Server
     remote_api.on('from_server_to_client_new_rmld', function (raw_data) {
-      var data = raw_data.data;
-      var app_id = raw_data.app_id;
+      let data = raw_data.data;
+      let app_id = raw_data.app_id;
       // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
       if (app_id != app_cfg.global.app_id) {
         saver.save_new_rmld(data, app_cfg.endpoint.host, app_id, function (result) {

@@ -7,7 +7,7 @@ const webserver = https.createServer({
   key: fs.readFileSync('./misc/server.key', 'utf8'),
   cert: fs.readFileSync('./misc/server.cert', 'utf8')
 }, app);
-const io = require('socket.io').listen(webserver);
+const io = require('socket.io')(webserver);
 const io_api = require('socket.io-client');
 const async = require('async');
 const path = require('path');
@@ -18,12 +18,12 @@ const passport = require('passport');
 const { v4: uuidv4 } = require('uuid');
 
 // Basis-Konfiguration laden und generische App-UUID erzeugen
-var app_cfg = require('./server/app_cfg.js');
+const app_cfg = require('./server/app_cfg.js');
 app_cfg.global.app_id = uuidv4();
-app_cfg.public.version = 'Version 1.2.1';
+app_cfg.public.version = require('./package.json').version;
 
 // Remote-Api aktivieren
-var remote_api;
+let remote_api;
 if (app_cfg.endpoint.enabled) {
   remote_api = io_api.connect(app_cfg.endpoint.host, {
     reconnect: true
@@ -45,16 +45,16 @@ app.use(bodyParser.urlencoded({
 }));
 
 // Scripte einbinden
-var sql_cfg = require('./server/sql_cfg')(fs, bcrypt, app_cfg);
-var sql = require('./server/sql_qry')(sql_cfg, app_cfg);
-var brk = require('./server/broker')(app_cfg, sql, uuidv4);
-var waip = require('./server/waip')(io, sql, fs, brk, async, app_cfg);
-var saver = require('./server/saver')(app_cfg, sql, waip, uuidv4, io, remote_api);
-var api = require('./server/api')(io, sql, app_cfg, remote_api, saver);
-var socket = require('./server/socket')(io, sql, app_cfg, waip);
-var udp = require('./server/udp')(app_cfg, sql, saver);
-var auth = require('./server/auth')(app, app_cfg, sql_cfg, async, bcrypt, passport, io);
-var routes = require('./server/routing')(app, sql, uuidv4, app_cfg, passport, auth, udp, saver);
+let sql_cfg = require('./server/sql_cfg.js')(fs, bcrypt, app_cfg);
+let sql = require('./server/sql_qry.js')(sql_cfg, app_cfg);
+let brk = require('./server/broker.js')(app_cfg, sql, uuidv4);
+let waip = require('./server/waip.js')(io, sql, fs, brk, async, app_cfg);
+let saver = require('./server/saver.js')(app_cfg, sql, waip, uuidv4, io, remote_api);
+let api = require('./server/api.js')(io, sql, app_cfg, remote_api, saver);
+let socket = require('./server/socket.js')(io, sql, app_cfg, waip);
+let udp = require('./server/udp.js')(app_cfg, sql, saver);
+let auth = require('./server/auth.js')(app, app_cfg, sql_cfg, async, bcrypt, passport, io);
+let routes = require('./server/routing.js')(app, sql, uuidv4, app_cfg, passport, auth, udp, saver);
 
 // Server starten
 webserver.listen(app_cfg.global.https_port, function () {
@@ -63,7 +63,7 @@ webserver.listen(app_cfg.global.https_port, function () {
 
 // Redirect all HTTP traffic to HTTPS
 http.createServer(function (req, res) {
-  var host = req.headers.host;
+  let host = req.headers.host;
   // prüfen ob host gesetzt, sonst 404
   if (typeof host !== 'undefined' && host) {
     // Anfrage auf https umleiten

@@ -2,11 +2,11 @@ module.exports = function (io, sql, app_cfg, waip) {
 
   // Socket.IO Alarmmonitor
 
-  var nsp_waip = io.of('/waip');
+  let nsp_waip = io.of('/waip');
 
   nsp_waip.on('connection', function (socket) {
     // versuche Client-IP zu ermitteln
-    var client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
+    let client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
     //zuerst Server-Version senden, damit der Client diese prueft und die Seite ggf. neu laedt
     socket.emit('io.version', app_cfg.global.app_id);
     // Aufruf des Alarmmonitors einer bestimmten Wache verarbeiten
@@ -22,7 +22,7 @@ module.exports = function (io, sql, app_cfg, waip) {
             sql.db_einsatz_ermitteln(wachen_id, socket, function (result_einsatz) {
               if (result_einsatz) {
                 // nur den ersten Einsatz senden, falls mehrere vorhanden sind
-                var waip_id = result_einsatz[0].waip_einsaetze_ID;
+                let waip_id = result_einsatz[0].waip_einsaetze_ID;
                 sql.db_log('WAIP', 'Einsatz ' + waip_id + ' für Wache ' + wachen_id + ' vorhanden, wird jetzt an Client ' + socket.id + ' gesendet.');
                 //letzten Einsatz verteilen
                 waip.waip_verteilen(waip_id, socket, wachen_id);
@@ -52,11 +52,11 @@ module.exports = function (io, sql, app_cfg, waip) {
 
   // Socket.IO Dashboard
 
-  var nsp_dbrd = io.of('/dbrd');
+  let nsp_dbrd = io.of('/dbrd');
 
   nsp_dbrd.on('connection', function (socket) {
     // versuche Client-IP zu ermitteln
-    var client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
+    let client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers['x-forwarded-for'] || socket.request.connection.remoteAddress;
     //zuerst Server-Version senden, damit der Client diese prueft und die Seite ggf. neu laedt
     socket.emit('io.version', app_cfg.global.app_id);
     // Aufruf des Dashboards eines bestimmten Einsatzes verarbeiten

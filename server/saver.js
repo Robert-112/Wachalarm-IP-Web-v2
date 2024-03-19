@@ -4,7 +4,7 @@ module.exports = function (app_cfg, sql, waip, uuidv4, io, remote_api) {
   const turf = require('@turf/turf');
 
   // Variablen festlegen
-  var uuid_pattern = new RegExp('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', 'i');
+  let uuid_pattern = new RegExp('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', 'i');
 
   // Speichern eines neuen Einsatzes
   function save_new_waip(waip_data, remote_addr, app_id) {
@@ -13,18 +13,18 @@ module.exports = function (app_cfg, sql, waip, uuidv4, io, remote_api) {
       if (waip_json) {
         // Polygon erzeugen und zuweisen falls nicht vorhanden
         if (!waip_json.ortsdaten.wgs84_area) {
-          var wgs_x = parseFloat(waip_json.ortsdaten.wgs84_x);
-          var wgs_y = parseFloat(waip_json.ortsdaten.wgs84_y);
-          var point = turf.point([wgs_y, wgs_x]);
-          var buffered = turf.buffer(point, 1, {
+          let wgs_x = parseFloat(waip_json.ortsdaten.wgs84_x);
+          let wgs_y = parseFloat(waip_json.ortsdaten.wgs84_y);
+          let point = turf.point([wgs_y, wgs_x]);
+          let buffered = turf.buffer(point, 1, {
             steps: app_cfg.global.circumcircle,
             units: 'kilometers'
           });
-          var bbox = turf.bbox(buffered);
-          var new_point = turf.randomPoint(1, {
+          let bbox = turf.bbox(buffered);
+          let new_point = turf.randomPoint(1, {
             bbox: bbox
           });
-          var new_buffer = turf.buffer(new_point, 1, {
+          let new_buffer = turf.buffer(new_point, 1, {
             steps: app_cfg.global.circumcircle,
             units: 'kilometers'
           })
@@ -98,7 +98,7 @@ module.exports = function (app_cfg, sql, waip, uuidv4, io, remote_api) {
     if (data.constructor == String) {
       // String versuchen in JSON umzuwandeln
       try {
-        var tmp = JSON.parse(data);
+        let tmp = JSON.parse(data);
         callback && callback(tmp);
       } catch (error) {
         callback && callback(false);
@@ -107,11 +107,11 @@ module.exports = function (app_cfg, sql, waip, uuidv4, io, remote_api) {
     // Typ ist Object
     if (data.constructor === Object) {
       // teste ob der String des Objects JSON-Konform ist
-      var text = JSON.stringify(data);
+      let text = JSON.stringify(data);
       if (/^[\],:{}\s]*$/.test(text.replace(/\\["\\\/bfnrtu]/g, '@').replace(/"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g, ']').replace(/(?:^|:|,)(?:\s*\[)+/g, ''))) {
         //falls ja, dann versuche String in JSON zu parsen
         try {
-          var tmp = JSON.parse(text);
+          let tmp = JSON.parse(text);
           callback && callback(tmp);
         } catch (error) {
           callback && callback(false);
@@ -204,12 +204,12 @@ module.exports = function (app_cfg, sql, waip, uuidv4, io, remote_api) {
     if (app_cfg.filter.enabled) {
       // Filter nur anwenden wenn Einsatzdaten von bestimmten IP-Adressen kommen
       if (app_cfg.filter.on_message_from.includes(remote_ip)) {
-        var data_filtered = data;
+        let data_filtered = data;
         // Schleife definieren
         function loop_done(data_filtered) {
           callback && callback(data_filtered);
         };
-        var itemsProcessed = 0;
+        let itemsProcessed = 0;
         // nicht gewollte Daten entfernen
         app_cfg.filter.remove_data.forEach(function (item, index, array) {
           data_filtered.einsatzdaten[item] = '';

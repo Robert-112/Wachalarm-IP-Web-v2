@@ -23,24 +23,24 @@ module.exports = function (app_cfg, sql, uuidv4) {
           // Prüfen ob zuletzt bereits eine Nachricht gesendet wurde (Doppelalarmierung vermeiden)
           sql.db_vmtl_check_history(vmtl_data, list_data, function (exists) {
             if (!exists) {
-              var T = new twit({
+              let T = new twit({
                 consumer_key: vmtl_data.tw_consumer_key,
                 consumer_secret: vmtl_data.tw_consumer_secret,
                 access_token: vmtl_data.tw_access_token_key,
                 access_token_secret: vmtl_data.tw_access_token_secret
               })
     
-              var params = {
+              let params = {
                 screen_name: vmtl_data.tw_screen_name
               };
     
               // Twitter-Liste beschicken
               T.get('lists/list', params, function (error, lists, response) {
                 if (!error) {
-                  var list_obj = lists.filter(function (o) {
+                  let list_obj = lists.filter(function (o) {
                     return o.name == vmtl_data.list;
                   });
-                  var member_params = {
+                  let member_params = {
                     list_id: list_obj[0].id_str,
                     count: 50
                   };
@@ -52,15 +52,15 @@ module.exports = function (app_cfg, sql, uuidv4) {
                         console.log('Response der Twitter-Liste: ' + JSON.stringify(response));
                       };
                       // an jedes Mitglied der Liste eine Meldung senden
-                      var arrayLength = members.users.length;
-                      for (var i = 0; i < arrayLength; i++) {
+                      let arrayLength = members.users.length;
+                      for (let i = 0; i < arrayLength; i++) {
                         // Mitteilungstext festelgen
                         console.log(members);
-                        var tw_text = String.fromCodePoint(0x1F4DF) + ' ' + String.fromCodePoint(0x1F6A8) + String.fromCodePoint(0x0A) +
+                        let tw_text = String.fromCodePoint(0x1F4DF) + ' ' + String.fromCodePoint(0x1F6A8) + String.fromCodePoint(0x0A) +
                           'Einsatz für ' + vmtl_data.name_wache + ' ' + String.fromCodePoint(0x27A1) + ' ' + vmtl_data.einsatzart + ', ' + vmtl_data.stichwort + String.fromCodePoint(0x0A) +
                           'jetzt Rückmeldung senden: ' + app_cfg.public.url + '/rmld/' + vmtl_data.uuid + '/' + uuidv4();
                         // Parameter der Mitteilung
-                        var msg_params = {
+                        let msg_params = {
                           event: {
                             type: "message_create",
                             message_create: {

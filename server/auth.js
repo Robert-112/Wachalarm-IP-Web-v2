@@ -1,13 +1,13 @@
 module.exports = function(app, app_cfg, db, async, bcrypt, passport, io) {
 
-  var session = require('express-session');
-  var cookieParser = require('cookie-parser');
-  var flash = require('req-flash');
-  var SQLiteStore = require('connect-sqlite3')(session);
-  var LocalStrategy = require('passport-local').Strategy;
-  var IpStrategy = require('passport-ip').Strategy;
-  var passportSocketIo = require('passport.socketio');
-  var sessionStore = new SQLiteStore({
+  let session = require('express-session');
+  let cookieParser = require('cookie-parser');
+  let flash = require('req-flash');
+  let SQLiteStore = require('connect-sqlite3')(session);
+  let LocalStrategy = require('passport-local').Strategy;
+  let IpStrategy = require('passport-ip').Strategy;
+  let passportSocketIo = require('passport.socketio');
+  let sessionStore = new SQLiteStore({
     //db: app_cfg.global.database,
     //concurrentDB: true
   });
@@ -61,7 +61,7 @@ module.exports = function(app, app_cfg, db, async, bcrypt, passport, io) {
   passport.use(new IpStrategy({
     range: app_cfg.global.ip_auth_range
   }, function(profile, done) {
-    var profile_ip = profile.id
+    let profile_ip = profile.id
     profile_ip = profile_ip.replace(/^(::ffff:)/, "");
     db.get('SELECT user, id FROM waip_users WHERE ip_address = ?', profile_ip, function(err, row) {
       if (!row) {
@@ -94,7 +94,7 @@ module.exports = function(app, app_cfg, db, async, bcrypt, passport, io) {
       return next();
     };
     // denied. redirect to login
-    var err = new Error('Sie sind nicht angemeldet!');
+    let err = new Error('Sie sind nicht angemeldet!');
     err.status = 401;
     next(err);
   };
@@ -106,13 +106,13 @@ module.exports = function(app, app_cfg, db, async, bcrypt, passport, io) {
   		  // req.user is available for use here
   		  return next();
   	    };
-  	    var err = new Error('Sie verfügen nicht über die notwendigen Berechtigungen!');
+  	    let err = new Error('Sie verfügen nicht über die notwendigen Berechtigungen!');
   	    err.status = 401;
   	    next(err);
   	  });
     } else {
   	  // denied. redirect to login
-      var err = new Error('Sie sind nicht angemeldet!');
+      let err = new Error('Sie sind nicht angemeldet!');
       err.status = 401;
       next(err);
     };

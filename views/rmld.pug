@@ -11,6 +11,6 @@ block content
   script.
     map_tile='#{map_tile}'
     map_attribution='!{map_attribution}'
-    var einsatzdaten_obj = !{JSON.stringify(einsatzdaten).replace(/<\//g, '<\\/')}
+    let einsatzdaten_obj = !{JSON.stringify(einsatzdaten).replace(/<\//g, '<\\/')}
   script(src='/js/leaflet.js')
   script(src='/js/client_rmld.js')

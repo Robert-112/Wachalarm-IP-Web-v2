@@ -8,7 +8,7 @@ $(document).ready(function () {
 $(window).on('resize', function () {
   resize_text();
   // Position neu setzen
-  var newq = makeNewPosition();
+  let newq = makeNewPosition();
   $('.clock_y').css('top', newq[0]);
   $('.clock_y').css('left', newq[1]);
   // langsam verschieben
@@ -20,12 +20,12 @@ $(window).on('resize', function () {
 /* ############################ */
 
 
-var waipAudio = document.getElementById('audio');
+let waipAudio = document.getElementById('audio');
 
 waipAudio.addEventListener('ended', function () {
   console.log('ended');
   
-  var tmp_element;
+  let tmp_element;
   // Pause-Symbol in Play-Symbol
   tmp_element = document.querySelector('.ion-md-pause');
   if (tmp_element.classList.contains('ion-md-pause')) {
@@ -46,7 +46,7 @@ waipAudio.addEventListener('ended', function () {
 });
 
 waipAudio.addEventListener('play', function () {  
-  var tmp_element;
+  let tmp_element;
   // Pause-Symbol in Play-Symbol
   tmp_element = document.querySelector('.ion-md-play-circle');
   if (tmp_element.classList.contains('ion-md-play-circle')) {
@@ -101,7 +101,7 @@ function resize_text() {
 
 // Text nach bestimmter Laenge, in Abhaengigkeit von Zeichen, umbrechen
 function break_text_15(text) {
-  var new_text;
+  let new_text;
   new_text = text.replace(/.{15}(\s+|\-+)+/g, '$&@')
   new_text = new_text.split(/@/);
   new_text = new_text.join('<br>');
@@ -110,7 +110,7 @@ function break_text_15(text) {
 };
 
 function break_text_35(text) {
-  var new_text;
+  let new_text;
   new_text = text.replace(/.{50}\S*\s+/g, '$&@').split(/\s+@/);
   new_text = new_text.join('<br>');
   //console.log(new_text);
@@ -121,7 +121,7 @@ function break_text_35(text) {
 /* ####### INAKTIVITAET ####### */
 /* ############################ */
 
-var timeoutID;
+let timeoutID;
 
 // Inactivitaet auswerten
 function setup_inactivcheck() {
@@ -188,14 +188,14 @@ function resetActivTimer(e) {
 /* ####### Progressbar ####### */
 /* ############################ */
 
-var counter_ID = 0;
+let counter_ID = 0;
 
 function start_counter(zeitstempel, ablaufzeit) {
   // Split timestamp into [ Y, M, D, h, m, s ]
-  var t1 = zeitstempel.split(/[- :]/),
+  let t1 = zeitstempel.split(/[- :]/),
     t2 = ablaufzeit.split(/[- :]/);
 
-  var start = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]),
+  let start = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]),
     end = new Date(t2[0], t2[1] - 1, t2[2], t2[3], t2[4], t2[5]);
 
   clearInterval(counter_ID);
@@ -207,16 +207,16 @@ function start_counter(zeitstempel, ablaufzeit) {
 function do_progressbar(start, end) {
   today = new Date();
   // restliche Zeit ermitteln
-  var current_progress = Math.round(100 / (end.getTime() - start.getTime()) * (end.getTime() - today.getTime()));
+  let current_progress = Math.round(100 / (end.getTime() - start.getTime()) * (end.getTime() - today.getTime()));
 
-  var diff = Math.abs(end - today);
-  var minutesDifference = Math.floor(diff / 1000 / 60);
+  let diff = Math.abs(end - today);
+  let minutesDifference = Math.floor(diff / 1000 / 60);
   diff -= minutesDifference * 1000 * 60;
-  var secondsDifference = Math.floor(diff / 1000);
+  let secondsDifference = Math.floor(diff / 1000);
   if (secondsDifference <= 9) {
     secondsDifference = '0' + secondsDifference;
   };
-  var minutes = minutesDifference + ':' + secondsDifference;
+  let minutes = minutesDifference + ':' + secondsDifference;
   // Progressbar anpassen
   $('#hilfsfrist')
     .css('width', current_progress + '%')
@@ -229,7 +229,7 @@ function do_progressbar(start, end) {
 /* ########################### */
 
 // Karte definieren
-var map = L.map('map', {
+let map = L.map('map', {
   zoomControl: false
 }).setView([51.733005, 14.338048], 13);
 
@@ -241,7 +241,7 @@ mapLink = L.tileLayer(
   }).addTo(map);
 
 // Icon der Karte zuordnen
-var redIcon = new L.Icon({
+let redIcon = new L.Icon({
   iconUrl: '/media/marker-icon-2x-red.png',
   shadowUrl: '/media/marker-shadow.png',
   iconSize: [25, 41],
@@ -251,19 +251,19 @@ var redIcon = new L.Icon({
 });
 
 // Icon setzen
-var marker = L.marker(new L.LatLng(0, 0), {
+let marker = L.marker(new L.LatLng(0, 0), {
   icon: redIcon
 }).addTo(map);
 
 // GeoJSON vordefinieren
-var geojson = L.geoJSON().addTo(map);
+let geojson = L.geoJSON().addTo(map);
 
 /* ########################### */
 /* ######## SOCKET.IO ######## */
 /* ########################### */
 
 // Websocket
-var socket = io('/waip');
+let socket = io('/waip');
 
 // Wachen-ID bei Connect an Server senden
 socket.on('connect', function () {
@@ -307,12 +307,12 @@ socket.on('io.stopaudio', function (data) {
 
 // Sounds abspielen
 socket.on('io.playtts', function (data) {
-  var audio = document.getElementById('audio');
+  let audio = document.getElementById('audio');
   audio.src = (data);
   console.log($('#audio'));
 
   // Audio-Blockade des Browsers erkennen
-  var playPromise = document.querySelector('audio').play();
+  let playPromise = document.querySelector('audio').play();
 
   // In browsers that don’t yet support this functionality,
   // playPromise won’t be defined.
@@ -325,7 +325,7 @@ socket.on('io.playtts', function (data) {
       console.log('Automatic playback failed');
       // Automatic playback failed.
       // Show a UI element to let the user manually start playback.
-      var tmp_element;
+      let tmp_element;
       tmp_element = document.querySelector('#volume');
       if (!tmp_element.classList.contains('btn-danger')) {
         tmp_element.classList.add('btn-danger');
@@ -365,7 +365,7 @@ socket.on('io.standby', function (data) {
   // Position neu setzen
   setTimeout(function () {
     // Position neu setzen
-    var newq = makeNewPosition();
+    let newq = makeNewPosition();
     $('.clock_y').css('top', newq[0]);
     $('.clock_y').css('left', newq[1]);
     // langsam verschieben
@@ -422,7 +422,7 @@ socket.on('io.new_waip', function (data) {
       $('#sondersignal').addClass('ion-md-notifications-off');
   };
   // Ortsdaten zusammenstellen und setzen
-  var small_ortsdaten;
+  let small_ortsdaten;
   small_ortsdaten = '';
   if (data.objekt) {
     small_ortsdaten = small_ortsdaten + break_text_15(data.objekt) + '<br>';
@@ -444,9 +444,9 @@ socket.on('io.new_waip', function (data) {
   $('#besonderheiten').html(break_text_35(data.besonderheiten));
   // alarmierte Einsatzmittel setzen
   $('#em_alarmiert').empty();
-  var data_em_alarmiert = JSON.parse(data.em_alarmiert);
-  for (var i in data_em_alarmiert) {
-    var tmp = data_em_alarmiert[i].name.replace(/[^a-z0-9\s]/gi, '').replace(/[_\s]/g, '-');
+  let data_em_alarmiert = JSON.parse(data.em_alarmiert);
+  for (let i in data_em_alarmiert) {
+    let tmp = data_em_alarmiert[i].name.replace(/[^a-z0-9\s]/gi, '').replace(/[_\s]/g, '-');
     $('#em_alarmiert').append('<div id="cn_' + tmp + '" class="rounded bg-secondary d-flex justify-content-between p-2 m-1"></div>');
     $('#cn_' + tmp).append('<div class="pr-2">' + data_em_alarmiert[i].name + '</div>');
   };
@@ -454,11 +454,11 @@ socket.on('io.new_waip', function (data) {
   $('#em_weitere').html('');
 
   try {
-    var data_em_weitere = JSON.parse(data.em_weitere);
+    let data_em_weitere = JSON.parse(data.em_weitere);
 
     if (data_em_weitere.length > 0) {
-      var tmp_weitere;
-      for (var i in data_em_weitere) {
+      let tmp_weitere;
+      for (let i in data_em_weitere) {
         if (tmp_weitere) {
           tmp_weitere = tmp_weitere + ', ' + data_em_weitere[i].name;
         } else {
@@ -506,7 +506,7 @@ socket.on('io.new_rmld', function (data) {
   // Neue Rueckmeldung hinterlegen
   data.forEach(function (arrayItem) {
     // HTML festlegen
-    var item_type = '';
+    let item_type = '';
     // wenn Einsatzkraft dann:
     if (arrayItem.einsatzkraft) {
       item_type = 'ek';
@@ -520,14 +520,14 @@ socket.on('io.new_rmld', function (data) {
       item_type = 'fk';
     };
     // wenn AGT
-    var item_agt = arrayItem.agt;
+    let item_agt = arrayItem.agt;
     // Variablen für Anzeige vorbereiten
-    var pg_waip_uuid = arrayItem.waip_uuid;
+    let pg_waip_uuid = arrayItem.waip_uuid;
     console.log(arrayItem.waip_uuid);
     console.log(pg_waip_uuid);
-    var pg_rmld_uuid = arrayItem.rmld_uuid;
-    var pg_start = new Date(arrayItem.set_time);
-    var pg_end = new Date(arrayItem.arrival_time);
+    let pg_rmld_uuid = arrayItem.rmld_uuid;
+    let pg_start = new Date(arrayItem.set_time);
+    let pg_end = new Date(arrayItem.arrival_time);
     // Progressbar hinterlegen
     add_resp_progressbar(pg_waip_uuid, pg_rmld_uuid, item_type, item_agt, pg_start, pg_end);
     // Anzahl der Rückmeldung zählen
@@ -536,10 +536,10 @@ socket.on('io.new_rmld', function (data) {
   // Text anpassen
   resize_text();
   // Bing abspielen
-  var audio = document.getElementById('audio');
+  let audio = document.getElementById('audio');
   audio.src = ('/media/bell_message.mp3');
   // Audio-Blockade des Browsers erkennen
-  var playPromise = document.querySelector('audio').play();
+  let playPromise = document.querySelector('audio').play();
   if (playPromise !== undefined) {
     playPromise.then(function () {
       audio.play();
@@ -553,10 +553,10 @@ socket.on('io.new_rmld', function (data) {
 /* ####### Rückmeldung ####### */
 /* ########################### */
 
-var counter_rmld = [];
+let counter_rmld = [];
 
 function reset_rmld(p_uuid) {
-  var bar_uuid = 'bar-' + p_uuid;
+  let bar_uuid = 'bar-' + p_uuid;
   $('#pg-ek').children().each(function (i) {
     if (!$(this).hasClass(bar_uuid)) {
       $(this).remove();
@@ -583,8 +583,8 @@ function reset_rmld(p_uuid) {
 
 function add_resp_progressbar(p_uuid, p_id, p_type, p_agt, p_start, p_end) {
   // Hintergrund der Progressbar festlegen
-  var bar_background = '';
-  var bar_border = '';
+  let bar_background = '';
+  let bar_border = '';
   if (p_agt) {
     bar_border = 'border border-warning';
   };
@@ -602,9 +602,9 @@ function add_resp_progressbar(p_uuid, p_id, p_type, p_agt, p_start, p_end) {
       bar_background = '';
       break;
   };
-  var bar_uuid = 'bar-' + p_uuid;
+  let bar_uuid = 'bar-' + p_uuid;
   // pruefen ob div mit id 'pg-'+p_id schon vorhanden ist
-  var pgbar = document.getElementById('pg-' + p_id);
+  let pgbar = document.getElementById('pg-' + p_id);
   if (!pgbar) {
     $('#pg-' + p_type).append('<div class="progress mt-1 position-relative ' + bar_border + ' ' + bar_uuid + '" id="pg-' + p_id + '" style="height: 15px; font-size: 14px;"></div>');
     $('#pg-' + p_id).append('<div id="pg-bar-' + p_id + '" class="progress-bar progress-bar-striped ' + bar_background + '" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>');
@@ -624,16 +624,16 @@ function do_rmld_bar(p_id, start, end) {
   //console.log(p_id);
   today = new Date();
   // restliche Zeit ermitteln
-  var current_progress = Math.round(100 / (start.getTime() - end.getTime()) * (start.getTime() - today.getTime()));
+  let current_progress = Math.round(100 / (start.getTime() - end.getTime()) * (start.getTime() - today.getTime()));
 
-  var diff = Math.abs(end - today);
-  var minutesDifference = Math.floor(diff / 1000 / 60);
+  let diff = Math.abs(end - today);
+  let minutesDifference = Math.floor(diff / 1000 / 60);
   diff -= minutesDifference * 1000 * 60;
-  var secondsDifference = Math.floor(diff / 1000);
+  let secondsDifference = Math.floor(diff / 1000);
   if (secondsDifference <= 9) {
     secondsDifference = '0' + secondsDifference;
   };
-  var minutes = minutesDifference + ':' + secondsDifference;
+  let minutes = minutesDifference + ':' + secondsDifference;
   // Progressbar anpassen
   if (current_progress >= 100) {
     $('#pg-bar-' + p_id)
@@ -651,8 +651,8 @@ function do_rmld_bar(p_id, start, end) {
 };
 
 function recount_rmld(p_uuid) {
-  var bar_uuid = 'bar-' + p_uuid;
-  var agt_count = 0;
+  let bar_uuid = 'bar-' + p_uuid;
+  let agt_count = 0;
   // Zähler auf 0 Setzen
   $('#ek-counter').text(0);
   $('#ma-counter').text(0);
@@ -661,7 +661,7 @@ function recount_rmld(p_uuid) {
   // EK zählen
   $('#pg-ek').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#ek-counter').text());
+      let tmp_count = parseInt($('#ek-counter').text());
       $('#ek-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -671,7 +671,7 @@ function recount_rmld(p_uuid) {
   // MA zählen
   $('#pg-ma').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#ma-counter').text());
+      let tmp_count = parseInt($('#ma-counter').text());
       $('#ma-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -681,7 +681,7 @@ function recount_rmld(p_uuid) {
   // FK zählen
   $('#pg-fk').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#fk-counter').text());
+      let tmp_count = parseInt($('#fk-counter').text());
       $('#fk-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -706,19 +706,19 @@ function recount_rmld(p_uuid) {
 function set_clock() {
   // TODO Sekunden anzeigen
   // Wochentage
-  var d_names = new Array('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
+  let d_names = new Array('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
   // Monate
-  var m_names = new Array('Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember');
+  let m_names = new Array('Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember');
   // Aktuelle Zeit
-  var d = new Date();
-  var curr_day = d.getDay();
-  var curr_date = d.getDate();
-  var curr_month_id = d.getMonth();
+  let d = new Date();
+  let curr_day = d.getDay();
+  let curr_date = d.getDate();
+  let curr_month_id = d.getMonth();
   curr_month_id = curr_month_id + 1;
-  var curr_year = d.getFullYear();
-  var curr_hour = d.getHours();
-  var curr_min = d.getMinutes();
-  var curr_sek = d.getSeconds();
+  let curr_year = d.getFullYear();
+  let curr_hour = d.getHours();
+  let curr_min = d.getMinutes();
+  let curr_sek = d.getSeconds();
   // Tag und Monat Anpassen
   if ((String(curr_date)).length == 1)
     curr_date = '0' + curr_date;
@@ -734,11 +734,11 @@ function set_clock() {
   if (curr_sek <= 9) {
     curr_sek = '0' + curr_sek;
   };
-  var curr_month = d.getMonth();
-  var curr_year = d.getFullYear();
-  var element_time = curr_hour + ':' + curr_min;
-  var element_day = d_names[curr_day] + ', ' + curr_date + '. ' + m_names[curr_month];
-  var element_date_time = curr_date + '.' + curr_month_id + '.' + curr_year + ' - ' + element_time + ':' + curr_sek;
+  let curr_month = d.getMonth();
+  let curr_year = d.getFullYear();
+  let element_time = curr_hour + ':' + curr_min;
+  let element_day = d_names[curr_day] + ', ' + curr_date + '. ' + m_names[curr_month];
+  let element_date_time = curr_date + '.' + curr_month_id + '.' + curr_year + ' - ' + element_time + ':' + curr_sek;
   // Easter-Egg :-)
   if (element_time.substr(0, 5) == '13:37') {
     element_time = '1337';
@@ -761,7 +761,7 @@ setInterval(set_clock, 1000);
 $(document).ready(function () {
   setTimeout(function () {
     // Position neu setzen
-    var newq = makeNewPosition();
+    let newq = makeNewPosition();
     $('.clock_y').css('top', newq[0]);
     $('.clock_y').css('left', newq[1]);
     // langsam verschieben
@@ -772,18 +772,18 @@ $(document).ready(function () {
 // neue Random-Position fuer Uhrzeit ermitteln
 function makeNewPosition() {
   // Get viewport dimensions 
-  var h = $('.fullheight').height() - $('.clock_y').height();
-  var w = $('.fullheight').width() - $('.clock_y').width();
-  var nh = Math.floor(Math.random() * h);
-  var nw = Math.floor(Math.random() * w);
+  let h = $('.fullheight').height() - $('.clock_y').height();
+  let w = $('.fullheight').width() - $('.clock_y').width();
+  let nh = Math.floor(Math.random() * h);
+  let nw = Math.floor(Math.random() * w);
   return [nh, nw];
 };
 
 // Verschieben animieren
 function animateDiv() {
-  var newq = makeNewPosition();
-  var oldq = $('.clock_y').offset();
-  var speed = calcSpeed([oldq.top, oldq.left], newq);
+  let newq = makeNewPosition();
+  let oldq = $('.clock_y').offset();
+  let speed = calcSpeed([oldq.top, oldq.left], newq);
   $('.clock_y').animate({
     top: newq[0],
     left: newq[1]
@@ -794,10 +794,10 @@ function animateDiv() {
 
 // Verschiebe-Geschwindigkeit berechnen
 function calcSpeed(prev, next) {
-  var x = Math.abs(prev[1] - next[1]);
-  var y = Math.abs(prev[0] - next[0]);
-  var greatest = x > y ? x : y;
-  var speedModifier = 0.001;
-  var speed = Math.ceil(greatest / speedModifier);
+  let x = Math.abs(prev[1] - next[1]);
+  let y = Math.abs(prev[0] - next[0]);
+  let greatest = x > y ? x : y;
+  let speedModifier = 0.001;
+  let speed = Math.ceil(greatest / speedModifier);
   return speed;
 };

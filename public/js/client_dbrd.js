@@ -1,7 +1,7 @@
 
 $(document).ready(function() {
   // Sound nicht beim laden der Seite abspielen
-  var audio = document.getElementById('audio');
+  let audio = document.getElementById('audio');
   audio.src = ('/media/bell_message.mp3');
   audio.volume = 0.0;
   setTimeout(function () {
@@ -17,7 +17,7 @@ $(document).ready(function() {
 /* ########################### */
 
 // Karte definieren
-var map = L.map('map', {
+let map = L.map('map', {
   zoomControl: false
 }).setView([51.733005, 14.338048], 13);
 
@@ -29,7 +29,7 @@ mapLink = L.tileLayer(
   }).addTo(map);
 
 // Icon der Karte zuordnen
-var redIcon = new L.Icon({
+let redIcon = new L.Icon({
   iconUrl: '/media/marker-icon-2x-red.png',
   shadowUrl: '/media/marker-shadow.png',
   iconSize: [25, 41],
@@ -39,28 +39,28 @@ var redIcon = new L.Icon({
 });
 
 // Icon setzen
-var marker = L.marker(new L.LatLng(0, 0), {
+let marker = L.marker(new L.LatLng(0, 0), {
   icon: redIcon
 }).addTo(map);
 
 // GeoJSON vordefinieren
-var geojson = L.geoJSON().addTo(map);
+let geojson = L.geoJSON().addTo(map);
 
 
 /* ########################### */
 /* ####### Rückmeldung ####### */
 /* ########################### */
 
-var counter_rmld = [];
+let counter_rmld = [];
 
-var counter_ID = 0;
+let counter_ID = 0;
 
 function start_counter(zeitstempel, ablaufzeit) {
   // Split timestamp into [ Y, M, D, h, m, s ]
-  var t1 = zeitstempel.split(/[- :]/),
+  let t1 = zeitstempel.split(/[- :]/),
     t2 = ablaufzeit.split(/[- :]/);
 
-  var start = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]),
+  let start = new Date(t1[0], t1[1] - 1, t1[2], t1[3], t1[4], t1[5]),
     end = new Date(t2[0], t2[1] - 1, t2[2], t2[3], t2[4], t2[5]);
 
   clearInterval(counter_ID);
@@ -70,7 +70,7 @@ function start_counter(zeitstempel, ablaufzeit) {
 };
 
 function reset_rmld(p_uuid) {
-  var bar_uuid = 'bar-' + p_uuid;
+  let bar_uuid = 'bar-' + p_uuid;
   $('#pg-ek').children().each(function (i) {
     if (!$(this).hasClass(bar_uuid)) {
       $(this).remove();
@@ -90,8 +90,8 @@ function reset_rmld(p_uuid) {
 
 function add_resp_progressbar(p_uuid, p_id, p_type, p_agt, p_start, p_end) {
   // Hintergrund der Progressbar festlegen
-  var bar_background = '';
-  var bar_border = '';
+  let bar_background = '';
+  let bar_border = '';
   if (p_agt) {
     bar_border = 'border border-warning';
   };
@@ -109,9 +109,9 @@ function add_resp_progressbar(p_uuid, p_id, p_type, p_agt, p_start, p_end) {
       bar_background = '';
       break;
   };
-  var bar_uuid = 'bar-' + p_uuid;
+  let bar_uuid = 'bar-' + p_uuid;
   // pruefen ob div mit id 'pg-'+p_id schon vorhanden ist
-  var pgbar = document.getElementById('pg-' + p_id);
+  let pgbar = document.getElementById('pg-' + p_id);
   if (!pgbar) {
     $('#pg-' + p_type).append('<div class="progress mt-1 position-relative ' + bar_border + ' ' + bar_uuid + '" id="pg-' + p_id + '" style="height: 15px; font-size: 14px;"></div>');
     $('#pg-' + p_id).append('<div id="pg-bar-' + p_id + '" class="progress-bar progress-bar-striped ' + bar_background + '" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>');
@@ -131,16 +131,16 @@ function do_rmld_bar(p_id, start, end) {
   //console.log(p_id);
   today = new Date();
   // restliche Zeit ermitteln
-  var current_progress = Math.round(100 / (start.getTime() - end.getTime()) * (start.getTime() - today.getTime()));
+  let current_progress = Math.round(100 / (start.getTime() - end.getTime()) * (start.getTime() - today.getTime()));
 
-  var diff = Math.abs(end - today);
-  var minutesDifference = Math.floor(diff / 1000 / 60);
+  let diff = Math.abs(end - today);
+  let minutesDifference = Math.floor(diff / 1000 / 60);
   diff -= minutesDifference * 1000 * 60;
-  var secondsDifference = Math.floor(diff / 1000);
+  let secondsDifference = Math.floor(diff / 1000);
   if (secondsDifference <= 9) {
     secondsDifference = '0' + secondsDifference;
   };
-  var minutes = minutesDifference + ':' + secondsDifference;
+  let minutes = minutesDifference + ':' + secondsDifference;
   // Progressbar anpassen
   if (current_progress >= 100) {
     $('#pg-bar-' + p_id)
@@ -159,8 +159,8 @@ function do_rmld_bar(p_id, start, end) {
 };
 
 function recount_rmld(p_uuid) {
-  var bar_uuid = 'bar-' + p_uuid;
-  var agt_count = 0;
+  let bar_uuid = 'bar-' + p_uuid;
+  let agt_count = 0;
   // Zähler auf 0 Setzen
   $('#ek-counter').text(0);
   $('#ma-counter').text(0);
@@ -169,7 +169,7 @@ function recount_rmld(p_uuid) {
   // EK zählen
   $('#pg-ek').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#ek-counter').text());
+      let tmp_count = parseInt($('#ek-counter').text());
       $('#ek-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -179,7 +179,7 @@ function recount_rmld(p_uuid) {
   // MA zählen
   $('#pg-ma').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#ma-counter').text());
+      let tmp_count = parseInt($('#ma-counter').text());
       $('#ma-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -189,7 +189,7 @@ function recount_rmld(p_uuid) {
   // FK zählen
   $('#pg-fk').children().each(function (i) {
     if ($(this).hasClass(bar_uuid)) {
-      var tmp_count = parseInt($('#fk-counter').text());
+      let tmp_count = parseInt($('#fk-counter').text());
       $('#fk-counter').text(tmp_count + 1);
       if ($(this).hasClass('border-warning')) {
         agt_count++;
@@ -213,15 +213,15 @@ function recount_rmld(p_uuid) {
 /* ########################### */
 
     // DOM element where the Timeline will be attached
-    var container = document.getElementById('visualization');
-    var items = new vis.DataSet();
-    var groups = new vis.DataSet();
+    let container = document.getElementById('visualization');
+    let items = new vis.DataSet();
+    let groups = new vis.DataSet();
 
     // Configuration for the Timeline
-    var customDate = new Date();
-    var alert_start = new Date(customDate.setMinutes(customDate.getMinutes() - 2));
-    var timeline_end = new Date(customDate.setMinutes(customDate.getMinutes() + 13));
-    var options = {
+    let customDate = new Date();
+    let alert_start = new Date(customDate.setMinutes(customDate.getMinutes() - 2));
+    let timeline_end = new Date(customDate.setMinutes(customDate.getMinutes() + 13));
+    let options = {
       rollingMode: {
         follow: true,
         offset: 0.25
@@ -231,7 +231,7 @@ function recount_rmld(p_uuid) {
     };
 
     // Create a Timeline
-    var timeline = new vis.Timeline(container, items, options);
+    let timeline = new vis.Timeline(container, items, options);
     timeline.setGroups(groups);
  
 /* ########################### */
@@ -239,7 +239,7 @@ function recount_rmld(p_uuid) {
 /* ########################### */
 
 // Websocket
-var socket = io('/dbrd');
+let socket = io('/dbrd');
 
 // Wachen-ID bei Connect an Server senden
 socket.on('connect', function () {
@@ -358,15 +358,15 @@ socket.on('io.Einsatz', function (data) {
     $('#einsatzort_list').append('<li class="list-group-item text-warning">' + data.besonderheiten+ '</li>');
   };
   // Alte Einsatzmittel loeschen
-  var table_em = document.getElementById('table_einsatzmittel');
+  let table_em = document.getElementById('table_einsatzmittel');
   table_em.getElementsByTagName('tbody')[0].innerHTML = '';
   // Einsatzmittel-Tabelle
-  for (var i in data.einsatzmittel) {
+  for (let i in data.einsatzmittel) {
 
-    var wache_vorhanden = false;
-    var wache_zeile = 0;
-    var wachen_idstr =data.einsatzmittel[i].wachenname.replace(/[^A-Z0-9]+/ig, '_');
-    for (var j = 0, row; row = table_em.rows[j]; j++) {
+    let wache_vorhanden = false;
+    let wache_zeile = 0;
+    let wachen_idstr =data.einsatzmittel[i].wachenname.replace(/[^A-Z0-9]+/ig, '_');
+    for (let j = 0, row; row = table_em.rows[j]; j++) {
       //console.log(row.cells[0].innerHTML);
       if (row.cells[0].innerHTML == data.einsatzmittel[i].wachenname) {
         wache_vorhanden = true;
@@ -375,45 +375,45 @@ socket.on('io.Einsatz', function (data) {
     };
     if (!wache_vorhanden){
       // Zeile fuer Wache anlegen, falls diese noch nicht hinterlegt
-      var tableRef = document.getElementById('table_einsatzmittel').getElementsByTagName('tbody')[0];
-      var newRow = tableRef.insertRow();
+      let tableRef = document.getElementById('table_einsatzmittel').getElementsByTagName('tbody')[0];
+      let newRow = tableRef.insertRow();
 
-      //var newCell = newRow.insertCell(0);
+      //let newCell = newRow.insertCell(0);
       // Wachennamen hinterlegen
-      var new_th = document.createElement('th');
+      let new_th = document.createElement('th');
       new_th.innerHTML = data.einsatzmittel[i].wachenname;
-      //var newText = document.createTextNode(data.einsatzmittel[i].wachenname);
+      //let newText = document.createTextNode(data.einsatzmittel[i].wachenname);
       //newCell.outerHTML = "<th></th>";
       //newCell.appendChild(newText);
       newRow.appendChild(new_th);
 
       //Flex-Element fuer Einsatzmittel der Wache erzeugen
-    var flex_div_wa = document.createElement('div');
+    let flex_div_wa = document.createElement('div');
     flex_div_wa.className = 'd-flex flex-wrap justify-content-between align-items-center';
     flex_div_wa.id = wachen_idstr;
 
     //Flexelement zur Tabelle hinzuefuegen
-    var new_td = document.createElement('td');
+    let new_td = document.createElement('td');
     new_td.appendChild(flex_div_wa);
     newRow.appendChild(new_td);
     //table_em.rows[wache_zeile].cells[1].appendChild(flex_div_wa);
     };
     
     //Flex-Element fuer Einsatzmittel erzeugen
-    var flex_div_em = document.createElement('div');
+    let flex_div_em = document.createElement('div');
     flex_div_em.className = 'flex-fill rounded bg-secondary p-2 m-1';
 
     //Justify-Rahmen feuer Einsatzmittel erzeugen
-    var justify_div = document.createElement('div');
+    let justify_div = document.createElement('div');
     justify_div.className = 'd-flex justify-content-between';
 
     //Einsatzmittel-Div erzeugen
-    var em_div  = document.createElement('div');
+    let em_div  = document.createElement('div');
     em_div.className = 'pr-2';
     em_div.innerHTML = data.einsatzmittel[i].einsatzmittel;
     
     //Status-Div erzeugen
-    var status_div  = document.createElement('div');
+    let status_div  = document.createElement('div');
     switch (data.einsatzmittel[i].status) {
       case '1':
         status_div.className = 'p-2 badge badge-info';
@@ -462,8 +462,8 @@ socket.on('io.Einsatz', function (data) {
     map.setZoom(13);
   };
   // Marker in Timeline setzen
-  var markerText = 'Alarmierung';
-  var alarm_zeit = 'alarm_zeit';
+  let markerText = 'Alarmierung';
+  let alarm_zeit = 'alarm_zeit';
     
     
     timeline.addCustomTime(
@@ -484,9 +484,9 @@ socket.on('io.new_rmld', function (data) {
   // Neue Rueckmeldung hinterlegen
   data.forEach(function (arrayItem) {
     // HTML festlegen
-    var item_type = '';
-    var item_content = '';
-    var item_classname = '';
+    let item_type = '';
+    let item_content = '';
+    let item_classname = '';
     // wenn Einsatzkraft dann:
     if (arrayItem.einsatzkraft) {
       item_content = 'Einsatzkraft';
@@ -506,17 +506,17 @@ socket.on('io.new_rmld', function (data) {
       item_type = 'fk';
     };
     // wenn AGT
-    var item_agt = arrayItem.agt;
+    let item_agt = arrayItem.agt;
     if (arrayItem.agt){
       item_content = item_content + (' (AGT)');
       item_classname = item_classname + ('-agt');
     };
     // Variablen für Anzeige vorbereiten
-    var pg_waip_uuid = arrayItem.waip_uuid;
-    var pg_rmld_uuid = arrayItem.rmld_uuid;
-    var pg_start = new Date(arrayItem.set_time);
-    var pg_end = new Date(arrayItem.arrival_time);
-    var timeline_item = {
+    let pg_waip_uuid = arrayItem.waip_uuid;
+    let pg_rmld_uuid = arrayItem.rmld_uuid;
+    let pg_start = new Date(arrayItem.set_time);
+    let pg_end = new Date(arrayItem.arrival_time);
+    let timeline_item = {
       id: arrayItem.rmld_uuid,
       group: arrayItem.wache_id,
       className: item_classname,
@@ -532,10 +532,10 @@ socket.on('io.new_rmld', function (data) {
     // Anzahl der Rückmeldung zählen
     recount_rmld(pg_waip_uuid);
   });
-  var audio = document.getElementById('audio');
+  let audio = document.getElementById('audio');
   audio.src = ('/media/bell_message.mp3');
   // Audio-Blockade des Browsers erkennen
-  var playPromise = document.querySelector('audio').play();
+  let playPromise = document.querySelector('audio').play();
   if (playPromise !== undefined) {
     playPromise.then(function () {
       audio.play();
