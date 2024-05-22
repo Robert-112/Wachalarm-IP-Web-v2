@@ -125,12 +125,14 @@ module.exports = (bcrypt, app_cfg) => {
       -- Tabelle für einzelne Rückmeldungen
       CREATE TABLE IF NOT EXISTS waip_singleresponse (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+        zeitstempel DATETIME DEFAULT (DATETIME(CURRENT_TIMESTAMP)), --neu
         waip_uuid TEXT,
         rmld_uuid TEXT,
-        rmld_alias TEXT,                -- vorher: alias
+        rmld_alias TEXT,               -- vorher: alias
         rmld_adress TEXT,              -- neu
-        role_type INTEGER,             -- vorher: einsatzkraft, maschinist, fuehrungskraft
-        capability_agt INTEGER,        -- vorher: agt
+        rmld_type TEXT,                -- vorher: INTEGER einsatzkraft, maschinist, fuehrungskraft
+        rmld_capability_agt INTEGER,   -- vorher: agt
+        rmld_recipients_sum INTEGER,   -- neu
         time_receive DATETIME,         -- neu
         time_set DATETIME,             -- vorher: set_time
         time_arrival DATETIME,         -- vorher: arrival_time

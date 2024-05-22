@@ -643,7 +643,7 @@ module.exports = function (db, app_cfg) {
           FROM waip_einsaetze 
           WHERE zeitstempel <= datetime('now', 'localtime', '-? minutes');
         `);
-        let rows = stmt.all(waip_uuid);
+        let rows = stmt.all(ablauf_minuten);
         if (rows.length === 0) {
           resolve(null);
         } else {
@@ -1274,7 +1274,7 @@ module.exports = function (db, app_cfg) {
           if (row === undefined) {
             resolve(false);
           } else {
-            // Berechtigungen mit Wache vergleichen, wenn found, dann true, sonst false
+            // Berechtigungen mit Wache vergleichen, wenn gefunden, dann true, sonst false
             let permission_arr = user_obj.permissions.split(",");
             const found = permission_arr.some(
               (r) => row.wache.search(RegExp("," + r + "|\\b" + r)) >= 0
@@ -1299,20 +1299,6 @@ module.exports = function (db, app_cfg) {
     });
   };
 
-/*id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-        zeitstempel DATETIME DEFAULT (DATETIME(CURRENT_TIMESTAMP)),
-        einsatz_id INTEGER,
-        gssi_wache INTEGER,
-        anzahl_empfaenger INTEGER,
-        response_uuid TEXT,
-        response_type TEXT,
-        response_agt INTEGER,
-        response_alias TEXT,
-        response_adress TEXT,           -- neu
-        response_receivetime DATETIME,  -- neu
-        response_settime DATETIME,
-        response_arrivaltime DATETIME,*/
-
   const db_rmld_save = (rmld_obj) => {
     return new Promise((resolve, reject) => {
       try {
@@ -1322,277 +1308,215 @@ module.exports = function (db, app_cfg) {
         } else {
           reuckmeldung.wache_id = null;
         }
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO waip_singleresponse
+          (id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_type, rmld_capability_agt, rmld_recipients_sum, time_receive, time_set, time_arrival, wache_id, wache_nr, wache_name)
+          VALUES (
+            (SELECT id FROM waip_singleresponse WHERE rmld_uuid = ?),
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?, 
+            (SELECT nr_wache FROM waip_wachen WHERE id = ?),
+            (SELECT name_wache FROM waip_wachen WHERE id = ?)
+          ); 
+        `);
+        stmt.run(
+          rmld_obj.response_uuid,
+          rmld_obj.einsatz_id,
+          rmld_obj.response_uuid,
+          rmld_obj.response_alias,
+          rmld_obj.response_adress,
+          rmld_obj.response_type,
+          rmld_obj.response_capability_agt,
+          rmld_obj.response_recipients_sum,
+          rmld_obj.time_receive,
+          rmld_obj.time_set,
+          rmld_obj.time_arrival,
+          rmld_obj.wache_id,
+          rmld_obj.wache_id,
+          rmld_obj.wache_id
+        );
+        resolve(rmld_obj.response_uuid);
       } catch (error) {
         reject(
           new Error(
-            "Fehler beim verarbeiten einer Rückmeldung. " +
-            rmld_obj
-              +
+            "Fehler beim verarbeiten einer Rückmeldung. " + rmld_obj + error
+          )
+        );
+      }
+    });
+  };
+
+  // alle Rückmeldungen laden
+  const db_rmld_get_fuer_wache = (waip_einsaetze_id, wachen_nr) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT * 
+          FROM waip_singleresponse 
+          WHERE waip_uuid = (SELECT uuid FROM waip_einsaetze WHERE id = ?);
+        `);
+        let rows = stmt.all(waip_einsaetze_id);
+        if (rows.length === 0) {
+          resolve(null);
+        } else {
+          rows = rows.filter((row) => row.wache_nr === wachen_nr);
+          resolve(rows);
+        }
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler beim laden von Rückmeldungen für eine Wache. " +
+              waip_einsaetze_id +
+              wachen_nr +
               error
           )
         );
       }
-    })
+    });
   };
 
-  function db_rmld_save(responseobj, callback) {
-    // TODO auch das Update einer Rückmeldung speichern und verteilen
-    // Rueckmeldung speichern
-    let reuckmeldung = {};
-    reuckmeldung.rmld_uuid = responseobj.rmld_uuid;
-    reuckmeldung.waip_uuid = responseobj.waip_uuid;
-    // Typ der Einsatzfunktion festlegen
-    switch (responseobj.radio_efunction) {
-      case "ek":
-        reuckmeldung.einsatzkraft = 1;
-        reuckmeldung.maschinist = 0;
-        reuckmeldung.fuehrungskraft = 0;
-        break;
-      case "ma":
-        reuckmeldung.einsatzkraft = 0;
-        reuckmeldung.maschinist = 1;
-        reuckmeldung.fuehrungskraft = 0;
-        break;
-      case "fk":
-        reuckmeldung.einsatzkraft = 0;
-        reuckmeldung.maschinist = 0;
-        reuckmeldung.fuehrungskraft = 1;
-        break;
-      default:
-        reuckmeldung.einsatzkraft = 0;
-        reuckmeldung.maschinist = 0;
-        reuckmeldung.fuehrungskraft = 0;
-    }
-    // ist AGT ja / nein
-    if (responseobj.cb_agt) {
-      reuckmeldung.agt = 1;
-    } else {
-      reuckmeldung.agt = 0;
-    }
-    // Zeitpunkt der Rueckmeldung festlegen
-    reuckmeldung.set_time = new Date();
-    // Zeitpunkt der geplanten Ankunft festlegen
-    let resp_time = new Date();
-    resp_time.setMinutes(
-      resp_time.getMinutes() + parseInt(responseobj.eintreffzeit)
-    );
-    reuckmeldung.arrival_time = resp_time;
-    // Wache gesetzt?
-    if (!isNaN(responseobj.wachenauswahl)) {
-      reuckmeldung.wache_id = responseobj.wachenauswahl;
-    } else {
-      reuckmeldung.wache_id = null;
-    }
-    // Rueckmeldung der Wache zuordnen
-    db.get(
-      `select name_wache, nr_wache from waip_wachen where id = ?;`,
-      [reuckmeldung.wache_id],
-      function (err, row) {
-        if (err == null && row) {
-          reuckmeldung.wache_name = row.name_wache;
-          reuckmeldung.wache_nr = row.nr_wache;
-          // Rueckmeldung in DB speichern
-          db.run(
-            `insert or replace into waip_response (id, waip_uuid, rmld_uuid, einsatzkraft, maschinist, fuehrungskraft, agt, set_time, arrival_time, wache_id, wache_nr, wache_name) 
-        values
-        ((select id from waip_response where rmld_uuid =  \'` +
-              reuckmeldung.rmld_uuid +
-              `\'), 
-        \'` +
-              reuckmeldung.waip_uuid +
-              `\', 
-        \'` +
-              reuckmeldung.rmld_uuid +
-              `\', 
-        \'` +
-              reuckmeldung.einsatzkraft +
-              `\', 
-        \'` +
-              reuckmeldung.maschinist +
-              `\', 
-        \'` +
-              reuckmeldung.fuehrungskraft +
-              `\', 
-        \'` +
-              reuckmeldung.agt +
-              `\', 
-        \'` +
-              reuckmeldung.set_time +
-              `\', 
-        \'` +
-              reuckmeldung.arrival_time +
-              `\', 
-        \'` +
-              reuckmeldung.wache_id +
-              `\', 
-        \'` +
-              reuckmeldung.wache_nr +
-              `\', 
-        \'` +
-              reuckmeldung.wache_name +
-              `\')`,
-            function (err) {
-              if (err == null) {
-                // Rueckmeldung-UUID zurückgeben
-                callback && callback(reuckmeldung.rmld_uuid);
-              } else {
-                callback && callback(null);
-              }
-            }
-          );
-        } else {
-          callback && callback(null);
-        }
-      }
-    );
-  }
-
-  // alle Rückmeldungen laden
-  function db_rmld_get_fuer_wache(waip_einsaetze_id, wachen_nr, callback) {
-    // Rueckmeldungen fuer eine Wache auslesen
-    db.all(
-      `SELECT * FROM waip_response WHERE waip_uuid = (select uuid from waip_einsaetze where id = ?)`,
-      [waip_einsaetze_id],
-      function (err, rows) {
-        if (err == null && rows) {
-          // temporaere Variablen
-          let itemsProcessed = 0;
-          let all_responses = [];
-          // callback-function fuer absgeschlossene Schleife
-          function loop_done(all_responses) {
-            callback && callback(all_responses);
-          }
-          // summiertes JSON-Rueckmeldeobjekt für die angeforderte Wachennummer erstellen
-          rows.forEach(function (item, index, array) {
-            let tmp = JSON.stringify(item.wache_nr);
-            if (tmp.startsWith(wachen_nr) || wachen_nr == 0) {
-              if (item.einsatzkraft == 1) {
-                item.einsatzkraft = true;
-              } else {
-                item.einsatzkraft = false;
-              }
-              if (item.maschinist == 1) {
-                item.maschinist = true;
-              } else {
-                item.maschinist = false;
-              }
-              if (item.fuehrungskraft == 1) {
-                item.fuehrungskraft = true;
-              } else {
-                item.fuehrungskraft = false;
-              }
-              if (item.agt == 1) {
-                item.agt = true;
-              } else {
-                item.agt = false;
-              }
-              // Rueckmeldeobjekt aufsummieren
-              all_responses.push(item);
-            }
-            // Schleife ggf. beenden
-            itemsProcessed++;
-            if (itemsProcessed === array.length) {
-              loop_done(all_responses);
-            }
-          });
-        } else {
-          callback && callback(null);
-        }
-      }
-    );
-  }
-
   // eine Rückmeldung laden
-  function db_rmld_get_by_rmlduuid(rmld_uuid, callback) {
-    // einzelne Rueckmeldung fuer eine Rueckmelde-UUID
-    db.all(
-      `SELECT * FROM waip_response WHERE rmld_uuid like ?`,
-      [rmld_uuid],
-      function (err, row) {
-        if (err == null && row) {
-          if (row.einsatzkraft == 1) {
-            row.einsatzkraft = true;
-          } else {
-            row.einsatzkraft = false;
-          }
-          if (row.maschinist == 1) {
-            row.maschinist = true;
-          } else {
-            row.maschinist = false;
-          }
-          if (row.fuehrungskraft == 1) {
-            row.fuehrungskraft = true;
-          } else {
-            row.fuehrungskraft = false;
-          }
-          if (row.agt == 1) {
-            row.agt = true;
-          } else {
-            row.agt = false;
-          }
-          callback && callback(row);
+  const db_rmld_get_by_rmlduuid = (rmld_uuid) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT * 
+          FROM waip_singleresponse 
+          WHERE rmld_uuid = ?;
+        `);
+        let row = stmt.get(rmld_uuid);
+        if (row === undefined) {
+          resolve(null);
         } else {
-          callback && callback(null);
+          resolve(row);
         }
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler beim laden einer Rückmeldung über die Rückmelde-UUID. " +
+              rmld_uuid +
+              error
+          )
+        );
       }
-    );
-  }
+    });
+  };
 
-  function db_rmld_get_for_export(waip_einsatznummer, waip_uuid, callback) {
-    // alle Rueckmeldungen fuer einen Einsatz ermitteln
-    db.all(
-      `SELECT ? einsatznummer, wr.id, wr.waip_uuid, wr.rmld_uuid, wr.einsatzkraft, wr.maschinist, wr.fuehrungskraft, 
-      wr.agt, wr.set_time, wr.arrival_time, wr.wache_id, wr.wache_nr, wr.wache_name
-      FROM waip_response wr WHERE wr. waip_uuid like ?`,
-      [waip_einsatznummer, waip_uuid],
-      function (err, rows) {
-        if (err == null && rows) {
-          callback && callback(rows);
+  // Rueckmeldungen löschen
+  const db_rmld_loeschen = (waip_uuid) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          DELETE FROM waip_singleresponse WHERE waip_uuid = ?;
+        `);
+        const info = stmt.run(waip_uuid);
+        resolve(info.changes);
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler beim löschen von Rückmeldungen. " + waip_uuid + error
+          )
+        );
+      }
+    });
+  };
+
+  // alle Rückmeldungen zum exportieren für einen Einsatz ermitteln
+  const db_export_get_rmld = (waip_einsatznummer, waip_uuid) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT 
+            ? einsatznummer, 
+            sr.id,
+            sr.waip_uuid, 
+            sr.rmld_uuid,
+            sr.rmld_alias,
+            sr.rmld_adress,
+            sr.rmld_type,
+            sr.rmld_capability_agt,
+            sr.time_receive,
+            sr.time_set,
+            sr.time_arrival,
+            sr.wache_id, 
+            sr.wache_nr, 
+            sr.wache_name
+          FROM waip_singleresponse sr 
+          WHERE sr.waip_uuid = ?;
+        `);
+        let rows = stmt.all(waip_einsatznummer, waip_uuid);
+        if (rows.length === 0) {
+          resolve(null);
         } else {
-          callback && callback(null);
+          resolve(rows);
         }
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler beim laden von Rückmeldungen für den Export. " +
+              waip_einsatznummer +
+              waip_uuid +
+              error
+          )
+        );
       }
-    );
-  }
+    });
+  };
 
-  function db_rmld_loeschen(waip_uuid) {
-    // Rueckmeldungen löschen
-    db.run(`DELETE FROM waip_response WHERE waip_uuid = ?`, [waip_uuid]);
-  }
-
-  function db_export_get_for_rmld(arry_wachen, callback) {
-    // saubere String-Werte erstellen
-    arry_wachen = arry_wachen.map(String);
-    // Wachen-Nummern um Teil-Nummern fuer Kreis und Treager ergaenzen
-    let kreis = arry_wachen.map((i) => i.substr(0, 2));
-    let traeger = arry_wachen.map((i) => i.substr(0, 4));
-    arry_wachen = arry_wachen.concat(kreis);
-    arry_wachen = arry_wachen.concat(traeger);
-    // doppelte Elemente aus Array entfernen
-    arry_wachen = arry_wachen.filter((v, i, a) => a.indexOf(v) === i);
-    // DEBUG
-    if (app_cfg.global.development) {
-      console.log("Export-Liste RMLD: " + JSON.stringify(arry_wachen));
-    }
-    // nur weiter machen wenn arry_wachen nicht leer, weil z.b. keine Rueckmeldungen vorhanden sind
-    if (arry_wachen.length > 0) {
-      // Export-Liste auslesen
-      db.each(
-        `select * from waip_export where export_typ like \'rmld\' and (export_filter IN (` +
-          arry_wachen.join(", ") +
-          `) or export_filter like \'\')`,
-        function (err, row) {
-          if (err == null && row) {
-            callback && callback(row);
-          } else {
-            callback && callback(null);
-          }
+  // Empfänger für den Export ermitteln
+  const db_export_get_recipient = (arry_wachen) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // saubere String-Werte erstellen
+        arry_wachen = arry_wachen.map(String);
+        // Wachen-Nummern um Teil-Nummern fuer Kreis und Treager ergaenzen
+        let kreis = arry_wachen.map((i) => i.substr(0, 2));
+        let traeger = arry_wachen.map((i) => i.substr(0, 4));
+        arry_wachen = arry_wachen.concat(kreis);
+        arry_wachen = arry_wachen.concat(traeger);
+        // doppelte Elemente aus Array entfernen
+        arry_wachen = arry_wachen.filter((v, i, a) => a.indexOf(v) === i);
+        // DEBUG
+        if (app_cfg.global.development) {
+          console.log("Export-Liste RMLD: " + JSON.stringify(arry_wachen));
         }
-      );
-    } else {
-      callback && callback(null);
-    }
-  }
+        // nur weiter machen wenn arry_wachen nicht leer, weil z.b. keine Rueckmeldungen vorhanden sind
+        if (arry_wachen.length > 0) {
+          // Export-Liste auslesen
+          const stmt = db.prepare(`
+            SELECT * FROM waip_export
+            WHERE export_typ LIKE ? 
+            AND (export_filter IN (?) OR export_filter LIKE ?);
+          `);
+          let rows = stmt.all("rmld", arry_wachen.join(", "), "");
+          if (rows.length === 0) {
+            resolve(null);
+          } else {
+            resolve(rows);
+          }
+        } else {
+          resolve(null);
+        }
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler beim laden von Empfängern für den Export. " +
+              arry_wachen +
+              error
+          )
+        );
+      }
+    });
+  };
 
   return {
     db_einsatz_speichern: db_einsatz_speichern,
@@ -1627,8 +1551,8 @@ module.exports = function (db, app_cfg) {
     db_rmld_save: db_rmld_save,
     db_rmld_get_fuer_wache: db_rmld_get_fuer_wache,
     db_rmld_get_by_rmlduuid: db_rmld_get_by_rmlduuid,
-    db_rmld_get_for_export: db_rmld_get_for_export,
+    db_export_get_rmld: db_export_get_rmld,
     db_rmld_loeschen: db_rmld_loeschen,
-    db_export_get_for_rmld: db_export_get_for_rmld,
+    db_export_get_recipient: db_export_get_recipient,
   };
 };

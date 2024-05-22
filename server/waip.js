@@ -384,10 +384,10 @@ module.exports = function (io, sql, fs, brk, async, app_cfg) {
               };
             });
           };
-          sql.db_rmld_get_for_export(waip.einsatznummer, waip.uuid, function (full_rmld) {
+          sql.db_export_get_rmld(waip.einsatznummer, waip.uuid, function (full_rmld) {
             // beteiligte Wachen aus den Einsatz-Rueckmeldungen filtern
             let arry_wachen = full_rmld.map(a => a.wache_nr);
-            sql.db_export_get_for_rmld(arry_wachen, function (export_data) {
+            sql.db_export_get_recipient(arry_wachen, function (export_data) {
               // SQL gibt ist eine Schliefe (db.each), fuer jedes Ergebnis wird eine CSV/Mail erstellt
               if (export_data) {
                 // je Export eine CSV erstellen, die nur die gewuenschten Rueckmeldungen enthaelt
