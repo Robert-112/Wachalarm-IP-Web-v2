@@ -1,4 +1,4 @@
-module.exports = function (db, app_cfg) {
+module.exports = (db, app_cfg) => {
   // Module laden
   const { v4: uuidv4 } = require("uuid");
   const { v5: uuidv5 } = require("uuid");
@@ -1052,7 +1052,7 @@ module.exports = function (db, app_cfg) {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT * FROM waip_log ORDER BY id DESC LIMIT 5000;
+          SELECT * FROM waip_log ORDER BY id DESC LIMIT 10000;
         `);
         let rows = stmt.all();
         if (rows.length === 0) {
@@ -1310,9 +1310,13 @@ module.exports = function (db, app_cfg) {
         }
         const stmt = db.prepare(`
           INSERT OR REPLACE INTO waip_singleresponse
-          (id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_type, rmld_capability_agt, rmld_recipients_sum, time_receive, time_set, time_arrival, wache_id, wache_nr, wache_name)
+          (id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_oldtype, rmld_role, rmld_capability_agt, rmld_capability_ma, rmld_capability_fzf, rmld_capability_med, rmld_recipients_sum, time_receive, time_set, time_arrival, wache_id, wache_nr, wache_name)
           VALUES (
             (SELECT id FROM waip_singleresponse WHERE rmld_uuid = ?),
+            ?,
+            ?,
+            ?,
+            ?,
             ?,
             ?,
             ?,
@@ -1334,8 +1338,12 @@ module.exports = function (db, app_cfg) {
           rmld_obj.response_uuid,
           rmld_obj.response_alias,
           rmld_obj.response_adress,
-          rmld_obj.response_type,
+          rmld_obj.response_oldtype,
+          rmld_obj.response_role,
           rmld_obj.response_capability_agt,
+          rmld_obj.response_capability_ma,
+          rmld_obj.response_capability_fzf,
+          rmld_obj.response_capability_med,
           rmld_obj.response_recipients_sum,
           rmld_obj.time_receive,
           rmld_obj.time_set,
@@ -1442,7 +1450,7 @@ module.exports = function (db, app_cfg) {
             sr.rmld_uuid,
             sr.rmld_alias,
             sr.rmld_adress,
-            sr.rmld_type,
+            sr.rmld_oldtype,
             sr.rmld_capability_agt,
             sr.time_receive,
             sr.time_set,
@@ -1518,6 +1526,193 @@ module.exports = function (db, app_cfg) {
     });
   };
 
+  // Benutzer-Objekt für Authorisierung aus der Datenbank laden
+  const auth_deserializeUser = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT 
+            id, 
+            user, 
+            permissions,
+            (SELECT reset_counter FROM waip_user_config WHERE user_id = ?) reset_counter
+          FROM waip_users 
+          WHERE id = ?;
+        `);
+        let row = stmt.get(id);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_deserializeUser. " + id + error));
+      }
+    });
+  };
+
+  // Authorisierung über IP-Adresse
+  const auth_ipstrategy = (profile_ip) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT user, id FROM waip_users WHERE ip_address = ?;
+        `);
+        let row = stmt.get(profile_ip);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_ipstrategy. " + profile_ip + error));
+      }
+    });
+  };
+
+  // Abfrage des verschlüsselten Passwords zum Abgleich
+  const auth_localstrategy_cryptpassword = (user) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT password FROM waip_users WHERE user = ?;
+        `);
+        let row = stmt.get(user);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(
+          new Error(
+            "Fehler bei auth_localstrategy_cryptpassword. " + user + error
+          )
+        );
+      }
+    });
+  };
+
+  // User und Id für Authorisierung
+  const auth_localstrategy_userid = (user) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT user, id FROM waip_users WHERE user = ?;
+        `);
+        let row = stmt.get(user);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(
+          new Error("Fehler bei auth_localstrategy_userid. " + user + error)
+        );
+      }
+    });
+  };
+
+  // sicherstellen das User Admin-Rechte hat
+  const auth_ensureAdmin = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT permissions FROM waip_users WHERE id = ?;
+        `);
+        let row = stmt.get(id);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row.permissions);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_ensureAdmin. " + id + error));
+      }
+    });
+  };
+
+  // Prüfen ob User bereits in Datenbank vorhanden
+  const auth_user_dobblecheck = (user) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT user FROM waip_users WHERE user = ?;
+        `);
+        let row = stmt.get(user);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_user_dobblecheck. " + user + error));
+      }
+    });
+  };
+
+  // Neuen User anlegen
+  const auth_create_new_user = (user, password, permissions, ip_address) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          INSERT INTO waip_users ( 
+            user, 
+            password, 
+            permissions, 
+            ip_address 
+          ) VALUES ( 
+            ?, 
+            ?, 
+            ?, 
+            ? 
+          );
+        `);
+        const info = stmt.run(user, password, permissions, ip_address);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler bei auth_create_new_user. " + user + error));
+      }
+    });
+  };
+
+  // einen Nutzer aus der Datebank löschen
+  const auth_deleteUser = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+            DELETE FROM waip_users WHERE id = ?;
+          `);
+        let row = stmt.run(id);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_deleteUser. " + id + error));
+      }
+    });
+  };
+
+  // einen Nutzer in der Datenbank bearbeiten
+  const auth_editUser = (query) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(query);
+        let row = stmt.run();
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_editUser. " + id + error));
+      }
+    });
+  };
+
   return {
     db_einsatz_speichern: db_einsatz_speichern,
     db_einsatz_ermitteln: db_einsatz_ermitteln,
@@ -1554,5 +1749,14 @@ module.exports = function (db, app_cfg) {
     db_export_get_rmld: db_export_get_rmld,
     db_rmld_loeschen: db_rmld_loeschen,
     db_export_get_recipient: db_export_get_recipient,
+    auth_deserializeUser: auth_deserializeUser,
+    auth_ipstrategy: auth_ipstrategy,
+    auth_localstrategy_cryptpassword: auth_localstrategy_cryptpassword,
+    auth_localstrategy_userid: auth_localstrategy_userid,
+    auth_ensureAdmin: auth_ensureAdmin,
+    auth_user_dobblecheck: auth_user_dobblecheck,
+    auth_create_new_user: auth_create_new_user,
+    auth_deleteUser: auth_deleteUser,
+    auth_editUser: auth_editUser,
   };
 };

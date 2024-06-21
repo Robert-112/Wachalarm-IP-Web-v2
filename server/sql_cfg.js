@@ -130,8 +130,12 @@ module.exports = (bcrypt, app_cfg) => {
         rmld_uuid TEXT,
         rmld_alias TEXT,               -- vorher: alias
         rmld_adress TEXT,              -- neu
-        rmld_type TEXT,                -- vorher: INTEGER einsatzkraft, maschinist, fuehrungskraft
+        rmld_oldtype TEXT,             -- vorher: INTEGER einsatzkraft, maschinist, fuehrungskraft
+        rmld_role TEXT,                -- neu
         rmld_capability_agt INTEGER,   -- vorher: agt
+        rmld_capability_ma INTEGER,    -- neu
+        rmld_capability_fzf INTEGER,   -- neu
+        rmld_capability_med INTEGER,   -- neu
         rmld_recipients_sum INTEGER,   -- neu
         time_receive DATETIME,         -- neu
         time_set DATETIME,             -- vorher: set_time

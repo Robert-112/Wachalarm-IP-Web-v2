@@ -53,7 +53,7 @@ let saver = require('./server/saver.js')(app_cfg, sql, waip, uuidv4, io, remote_
 let api = require('./server/api.js')(io, sql, app_cfg, remote_api, saver);
 let socket = require('./server/socket.js')(io, sql, app_cfg, waip);
 let udp = require('./server/udp.js')(app_cfg, sql, saver);
-let auth = require('./server/auth.js')(app, app_cfg, sql_cfg, async, bcrypt, passport, io);
+let auth = require('./server/auth.js')(app, app_cfg, sql, async, bcrypt, passport, io);
 let routes = require('./server/routing.js')(app, sql, uuidv4, app_cfg, passport, auth, udp, saver);
 
 // Server starten

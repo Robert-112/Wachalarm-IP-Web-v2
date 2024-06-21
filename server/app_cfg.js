@@ -27,7 +27,7 @@ app_cfg.global = {
 app_cfg.public = {
   url: 'https://waip-dev.mooo.com',
   app_name: 'Wachalarm IP-Web',
-  company: 'Leitstelle Lausitz',
+  company: 'Netzwerk 112',
   map_tile: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
   map_attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   ext_imprint: false,

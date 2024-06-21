@@ -1,218 +1,262 @@
-module.exports = function(app, app_cfg, db, async, bcrypt, passport, io) {
+const sql_cfg = require("./sql_cfg");
 
-  let session = require('express-session');
-  let cookieParser = require('cookie-parser');
-  let flash = require('req-flash');
-  let SQLiteStore = require('connect-sqlite3')(session);
-  let LocalStrategy = require('passport-local').Strategy;
-  let IpStrategy = require('passport-ip').Strategy;
-  let passportSocketIo = require('passport.socketio');
+module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
+  let session = require("express-session");
+  let cookieParser = require("cookie-parser");
+  let flash = require("req-flash");
+  let SQLiteStore = require("connect-sqlite3")(session);
+  let LocalStrategy = require("passport-local").Strategy;
+  let IpStrategy = require("passport-ip").Strategy;
+  let passportSocketIo = require("passport.socketio");
   let sessionStore = new SQLiteStore({
     //db: app_cfg.global.database,
     //concurrentDB: true
   });
 
-  app.use(session({
-    store: sessionStore,
-    key: "connect.sid",
-    secret: app_cfg.global.sessionsecret,
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-      maxAge: 60 * 60 * 1000
-    } // Standard ist eine Stunde
-  }));
+  app.use(
+    session({
+      store: sessionStore,
+      key: "connect.sid",
+      secret: app_cfg.global.sessionsecret,
+      resave: false,
+      saveUninitialized: true,
+      cookie: {
+        maxAge: 60 * 60 * 1000,
+      }, // Standard ist eine Stunde
+    })
+  );
   app.use(cookieParser());
   app.use(flash());
   app.use(passport.initialize());
   app.use(passport.session());
 
-  io.use(passportSocketIo.authorize({
-    cookieParser: cookieParser, // the same middleware you registrer in express
-    key: "connect.sid", // the name of the cookie where express/connect stores its session_id
-    secret: app_cfg.global.sessionsecret, // the session_secret to parse the cookie
-    store: sessionStore, // we NEED to use a sessionstore. no memorystore please
-    success: function(data, accept) {
-      //console.log('successful connection to socket.io');
-      accept(null, true);
-    },
-    fail: function(data, message, error, accept) {
-      //console.log('failed connection to socket.io:', data, message);
-      accept(null, true);
-    }
-  }));
+  io.use(
+    passportSocketIo.authorize({
+      cookieParser: cookieParser, // the same middleware you registrer in express
+      key: "connect.sid", // the name of the cookie where express/connect stores its session_id
+      secret: app_cfg.global.sessionsecret, // the session_secret to parse the cookie
+      store: sessionStore, // we NEED to use a sessionstore. no memorystore please
+      success: function (data, accept) {
+        //console.log('successful connection to socket.io');
+        accept(null, true);
+      },
+      fail: function (data, message, error, accept) {
+        //console.log('failed connection to socket.io:', data, message);
+        accept(null, true);
+      },
+    })
+  );
 
   // Benutzerauthentifizierung per Login
-  passport.use(new LocalStrategy({
-    usernameField: 'user'
-  }, function(user, password, done) {
-    db.get('SELECT password FROM waip_users WHERE user = ?', user, function(err, row) {
-      if (!row) return done(null, false);
-      bcrypt.compare(password, row.password, function(err, res) {
-        if (!res) return done(null, false);
-        db.get('SELECT user, id FROM waip_users WHERE user = ?', user, function(err, row) {
-          return done(null, row);
-        });
-      });
-    });
-  }));
+  passport.use(
+    new LocalStrategy(
+      {
+        usernameField: "user",
+      },
+      async (user, password, done) => {
+        try {
+          const row = await sql.auth_localstrategy_cryptpassword(user);
+          if (!row) return done(null, false);
+          const res = await bcrypt.compare(password, row.password);
+          if (!res) return done(null, false);
+          const userRow = await sql.auth_localstrategy_userid(user);
+          return done(null, userRow);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    )
+  );
 
-  // Benutzerauthentifizierung per IP
-  passport.use(new IpStrategy({
-    range: app_cfg.global.ip_auth_range
-  }, function(profile, done) {
-    let profile_ip = profile.id
-    profile_ip = profile_ip.replace(/^(::ffff:)/, "");
-    db.get('SELECT user, id FROM waip_users WHERE ip_address = ?', profile_ip, function(err, row) {
-      if (!row) {
-        return done(null, false);
-      } else {
-        return done(null, row);
-      };
-    });
-  }));
+  // Benutzerauthentifizierung per IP-Adresse
+  passport.use(
+    new IpStrategy(
+      {
+        range: app_cfg.global.ip_auth_range,
+      },
+      async (profile, done) => {
+        let profile_ip = profile.id;
+        profile_ip = profile_ip.replace(/^(::ffff:)/, "");
+        try {
+          const row = await sql.auth_ipstrategy(profile_ip);
+          if (!row) {
+            return done(null, false);
+          } else {
+            return done(null, row);
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    )
+  );
 
-  passport.serializeUser(function(user, done) {
+  // Funktion die den Benutzer anhand der ID speichert
+  passport.serializeUser((user, done) => {
     return done(null, user.id);
   });
 
-  passport.deserializeUser(function(id, done) {
-    db.get(`SELECT id, user, permissions,
-      (select reset_counter from waip_user_config where user_id = ?) reset_counter
-      FROM waip_users WHERE id = ?`, [id, id], function(err, row) {
-      if (!row) {
+  // Funktion die den Benutzer anhand der ID wiederherstellt
+  passport.deserializeUser(async (id, done) => {
+    try {
+      const user = await sql.auth_deserializeUser(id);
+      if (!user) {
         return done(null, false);
+      } else {
+        return done(null, user);
       }
-      return done(null, row);
-    });
+    } catch (error) {
+      console.error(error);
+    }
   });
 
   // Funktion die prueft ob der Benutzer angemeldet ist
-  function ensureAuthenticated(req, res, next) {
+  const ensureAuthenticated = (req, res, next) => {
     if (req.isAuthenticated()) {
       // req.user is available for use here
       return next();
-    };
+    }
     // denied. redirect to login
-    let err = new Error('Sie sind nicht angemeldet!');
+    let err = new Error("Sie sind nicht angemeldet!");
     err.status = 401;
     next(err);
   };
 
-  function ensureAdmin(req, res, next) {
-  	if (req.isAuthenticated()) {
-  	  db.get('SELECT permissions FROM waip_users WHERE id = ?', req.user.id, function(err, row) {
-  	    if (row.permissions == "admin") {
-  		  // req.user is available for use here
-  		  return next();
-  	    };
-  	    let err = new Error('Sie verfügen nicht über die notwendigen Berechtigungen!');
-  	    err.status = 401;
-  	    next(err);
-  	  });
+  const ensureAdmin = async (req, res, next) => {
+    if (req.isAuthenticated()) {
+      const permissions = await sql.auth_ensureAdmin(req.user.id);
+      if (permissions == "admin") {
+        // req.user is available for use here
+        return next();
+      } else {
+        let err = new Error(
+          "Sie verfügen nicht über die notwendigen Berechtigungen!"
+        );
+        err.status = 401;
+        next(err);
+      }
     } else {
-  	  // denied. redirect to login
-      let err = new Error('Sie sind nicht angemeldet!');
+      // denied. redirect to login
+      let err = new Error("Sie sind nicht angemeldet!");
       err.status = 401;
       next(err);
-    };
+    }
   };
 
-  function createUser(req, res) {
-    db.get('SELECT user FROM waip_users WHERE user = ?', req.body.username, function(err, row) {
-      // if(err)
+  const createUser = async (req, res) => {
+    try {
+      const row = await sql.auth_createUser(req.body.username);
       if (row) {
-        req.flash('errorMessage', "Es existiert bereits ein Benutzer mit diesem Namen!");
-        res.redirect('/adm_edit_users');
+        req.flash(
+          "errorMessage",
+          "Es existiert bereits ein Benutzer mit diesem Namen!"
+        );
+        res.redirect("/adm_edit_users");
       } else {
-        bcrypt.hash(req.body.password, app_cfg.global.saltRounds, function(err, hash) {
-          db.run('INSERT INTO waip_users ( user, password, permissions, ip_address ) VALUES( ?, ?, ?, ? )', req.body.username, hash, req.body.permissions, req.body.ip, function(err) {
-            // if(err)
-            if (this.lastID) {
-              req.flash('successMessage', "Neuer Benutzer wurde angelegt.");
-              res.redirect('/adm_edit_users');
-            } else {
-              req.flash('errorMessage', "Da ist etwas schief gegangen...");
-              res.redirect('/adm_edit_users');
-            }
-          });
-        });
+        const hash = await bcrypt.hash(
+          req.body.password,
+          app_cfg.global.saltRounds
+        );
+        const result = await sql.auth_create_new_user(
+          req.body.username,
+          hash,
+          req.body.permissions,
+          req.body.ip
+        );
+        if (result) {
+          req.flash("successMessage", "Neuer Benutzer wurde angelegt.");
+          res.redirect("/adm_edit_users");
+        } else {
+          req.flash("errorMessage", "Da ist etwas schief gegangen...");
+          res.redirect("/adm_edit_users");
+        }
       }
-    });
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  function deleteUser(req, res) {
-    if (req.user.id == req.body.id) {
-      req.flash('errorMessage', "Sie können sich nicht selbst löschen!");
-      res.redirect('/adm_edit_users');
-    } else {
-      db.run('DELETE FROM waip_users WHERE id = ?', req.body.id, function(err) {
-        if (err) {
-          //...
+  const deleteUser = async (req, res) => {
+    try {
+      if (req.user.id == req.body.id) {
+        req.flash("errorMessage", "Sie können sich nicht selbst löschen!");
+        res.redirect("/adm_edit_users");
+      } else {
+        const result = await sql.auth_deleteUser(req.body.id);
+        if (result) {
+          req.flash(
+            "successMessage",
+            "Benutzer '" + req.body.username + "' wurde gelöscht!"
+          );
+          res.redirect("/adm_edit_users");
         } else {
-          req.flash('successMessage', "Benutzer \'" + req.body.username + "\' wurde gelöscht!");
-          res.redirect('/adm_edit_users');
+          req.flash("errorMessage", "Da ist etwas schief gegangen...");
+          res.redirect("/adm_edit_users");
         }
-      });
-    };
+      }
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  function editUser(req, res) {
-    async.series([
-        function(callback) {
-          req.runquery = false;
-          req.query = "UPDATE waip_users SET ";
-          if (req.body.password.length == 0) {
-            req.flash('successMessage', "Passwort wurde nicht geändert.");
-            callback(null, 'password_checked');
-          } else {
-            bcrypt.hash(req.body.password, app_cfg.global.saltRounds, function(err, hash) {
-              if (err) console.log(err)
-              req.flash('successMessage', "Passwort geändert.");
-              req.query += "password = '" + hash + "', ";
-              req.runquery = true;
-              callback(null, 'password_checked');
-            });
-          };
-        },
-        function(callback) {
-          if (req.user.id == req.body.modal_id && req.body.permissions != "admin") {
-            req.flash('errorMessage', "Sie können Ihr Recht als Administrator nicht selbst ändern!");
-            callback(null, 'permissions_checked');
-          } else {
-            req.query += "permissions = '" + req.body.permissions + "', ip_address ='" + req.body.ip + "'";
-            req.runquery = true;
-            callback(null, 'permissions_checked');
-          };
-        }
-      ],
-      function(err, results) {
-        if (req.runquery == true) {
-          req.query += " WHERE id = " + req.body.modal_id;
-          console.log(req.query);
-          db.run(req.query, function(err) {
-            if (err) {
-              //...
-              console.log(err);
-              req.flash('errorMessage', "Da ist etwas schief gegangen...");
-              res.redirect('/adm_edit_users');
-            } else {
-              req.flash('successMessage', "Benutzer aktualisiert.");
-              res.redirect('/adm_edit_users');
-            }
-          });
+  const editUser = async (req, res) => {
+    try {
+      req.runquery = false;
+      req.query = "UPDATE waip_users SET ";
+
+      if (req.body.password.length == 0) {
+        req.flash("successMessage", "Passwort wurde nicht geändert.");
+      } else {
+        const hash = await bcrypt.hash(
+          req.body.password,
+          app_cfg.global.saltRounds
+        );
+        req.flash("successMessage", "Passwort geändert.");
+        req.query += "password = '" + hash + "', ";
+        req.runquery = true;
+      }
+
+      if (req.user.id == req.body.modal_id && req.body.permissions != "admin") {
+        req.flash(
+          "errorMessage",
+          "Sie können Ihr Recht als Administrator nicht selbst ändern!"
+        );
+      } else {
+        req.query +=
+          "permissions = '" +
+          req.body.permissions +
+          "', ip_address ='" +
+          req.body.ip +
+          "'";
+        req.runquery = true;
+      }
+
+      if (req.runquery == true) {
+        req.query += " WHERE id = " + req.body.modal_id;
+        console.log(req.query);
+        const result = await sql.auth_editUser(req.query);
+        if (result) {
+          req.flash("successMessage", "Benutzer aktualisiert.");
+          res.redirect("/adm_edit_users");
         } else {
-          req.flash('errorMessage', "Da ist etwas schief gegangen...");
-          res.redirect('/adm_edit_users');
+          req.flash("errorMessage", "Da ist etwas schief gegangen...");
+          res.redirect("/adm_edit_users");
+          throw new Error("Fehler beim Ändern eines Benutzers.");
         }
-      });
+      } else {
+        req.flash("errorMessage", "Da ist etwas schief gegangen...");
+        res.redirect("/adm_edit_users");
+      }
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return {
     ensureAuthenticated: ensureAuthenticated,
-    ensureAdmin:ensureAdmin,
+    ensureAdmin: ensureAdmin,
     createUser: createUser,
     deleteUser: deleteUser,
-    editUser: editUser
+    editUser: editUser,
   };
 };
