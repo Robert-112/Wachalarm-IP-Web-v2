@@ -4,10 +4,11 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
   // ###
 
   if (app_cfg.api.enabled) {
+
     // Namespace API festlegen
     let nsp_api = io.of("/api");
 
-    nsp_api.on("connection", function (socket) {
+    nsp_api.on("connection", (socket) => {
       // versuche Remote-IP zu ermitteln
       let remote_ip =
         socket.handshake.headers["x-real-ip"] ||
@@ -34,7 +35,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
       sql.db_client_update_status(socket, "api");
 
       // Neuen Einsatz speichern
-      socket.on("from_client_to_server_new_waip", function (raw_data) {
+      socket.on("from_client_to_server_new_waip", (raw_data) => {
         let data = raw_data.data;
         let app_id = raw_data.app_id;
         // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
@@ -55,12 +56,12 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
       });
 
       // neue externe Rueckmeldung speichern
-      socket.on("from_client_to_server_new_rmld", function (raw_data) {
+      socket.on("from_client_to_server_new_rmld", (raw_data) => {
         let data = raw_data.data;
         let app_id = raw_data.app_id;
         // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
         if (app_id != app_cfg.global.app_id) {
-          saver.save_new_rmld(data, remote_ip, app_id, function (result) {
+          saver.save_new_rmld(data, remote_ip, app_id, (result) => {
             if (!result) {
               sql.db_log(
                 "API",
@@ -75,7 +76,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
       });
 
       // Disconnect
-      socket.on("disconnect", function () {
+      socket.on("disconnect", () => {
         sql.db_log(
           "API",
           "Schnittstelle von " + remote_ip + " (" + socket.id + ") geschlossen."
@@ -94,7 +95,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
     // TODO API: Verbindungsaufbau mit passendem Geheimnis absichern, IP-Adresse senden
 
     // Verbindungsaufbau protokollieren
-    remote_api.on("connect", function () {
+    remote_api.on("connect", () => {
       sql.db_log(
         "API",
         "Verbindung mit " + app_cfg.endpoint.host + " hergestellt"
@@ -102,7 +103,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
     });
 
     // Fehler protokollieren
-    remote_api.on("connect_error", function (err) {
+    remote_api.on("connect_error", (err) => {
       sql.db_log(
         "API",
         "Verbindung zu " + app_cfg.endpoint.host + " verloren, Fehler: " + err
@@ -110,7 +111,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
     });
 
     // Verbindungsabbau protokollieren
-    remote_api.on("disconnect", function (reason) {
+    remote_api.on("disconnect", (reason) => {
       sql.db_log(
         "API",
         "Verbindung zu " +
@@ -121,7 +122,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
     });
 
     // neuer Einsatz vom Endpoint-Server
-    remote_api.on("from_server_to_client_new_waip", function (raw_data) {
+    remote_api.on("from_server_to_client_new_waip", (raw_data) => {
       let data = raw_data.data;
       let app_id = raw_data.app_id;
       // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
@@ -148,7 +149,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
     });
 
     // neue Rückmeldung vom Endpoint-Server
-    remote_api.on("from_server_to_client_new_rmld", function (raw_data) {
+    remote_api.on("from_server_to_client_new_rmld", (raw_data) => {
       let data = raw_data.data;
       let app_id = raw_data.app_id;
       // nur speichern wenn app_id nicht eigenen globalen app_id entspricht

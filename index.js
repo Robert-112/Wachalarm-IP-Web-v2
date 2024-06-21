@@ -47,8 +47,7 @@ app.use(bodyParser.urlencoded({
 // Scripte einbinden
 let sql_cfg = require('./server/sql_cfg.js')(fs, bcrypt, app_cfg);
 let sql = require('./server/sql_qry.js')(sql_cfg, app_cfg);
-let brk = require('./server/broker.js')(app_cfg, sql, uuidv4);
-let waip = require('./server/waip.js')(io, sql, fs, brk, async, app_cfg);
+let waip = require('./server/waip.js')(io, sql, fs, async, app_cfg);
 let saver = require('./server/saver.js')(app_cfg, sql, waip, uuidv4, io, remote_api);
 let api = require('./server/api.js')(io, sql, app_cfg, remote_api, saver);
 let socket = require('./server/socket.js')(io, sql, app_cfg, waip);
