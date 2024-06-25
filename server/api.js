@@ -4,29 +4,17 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
   // ###
 
   if (app_cfg.api.enabled) {
-
     // Namespace API festlegen
     let nsp_api = io.of("/api");
 
     nsp_api.on("connection", (socket) => {
       // versuche Remote-IP zu ermitteln
-      let remote_ip =
-        socket.handshake.headers["x-real-ip"] ||
-        socket.handshake.headers["x-forwarded-for"] ||
-        socket.request.connection.remoteAddress;
+      let remote_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers["x-forwarded-for"] || socket.request.connection.remoteAddress;
 
       // Remote-Verbindung nur zulassen, wenn IP in Access-List, und Access-List ueberhaupt befuellt
-      if (
-        !app_cfg.api.access_list.includes(remote_ip) &&
-        app_cfg.api.access_list.length > 0
-      ) {
+      if (!app_cfg.api.access_list.includes(remote_ip) && app_cfg.api.access_list.length > 0) {
         socket.disconnect(true);
-        sql.db_log(
-          "API",
-          "Verbindung von " +
-            remote_ip +
-            " geschlossen, da nicht in Zugangsliste."
-        );
+        sql.db_log("API", "Verbindung von " + remote_ip + " geschlossen, da nicht in Zugangsliste.");
       }
 
       //TODO API: Eingehende Verbindung nur mit passendem Geheimnis zulassen, das Ergebnis loggen
@@ -42,15 +30,9 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
         if (app_id != app_cfg.global.app_id) {
           saver.save_new_waip(data, remote_ip, app_id);
           if (app_cfg.global.development) {
-            sql.db_log(
-              "API",
-              "Neuer Wachalarm von " + remote_ip + ": " + JSON.stringify(data)
-            );
+            sql.db_log("API", "Neuer Wachalarm von " + remote_ip + ": " + JSON.stringify(data));
           } else {
-            sql.db_log(
-              "API",
-              "Neuer Wachalarm von " + remote_ip + ". Wird verarbeitet."
-            );
+            sql.db_log("API", "Neuer Wachalarm von " + remote_ip + ". Wird verarbeitet.");
           }
         }
       });
@@ -63,13 +45,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
         if (app_id != app_cfg.global.app_id) {
           saver.save_new_rmld(data, remote_ip, app_id, (result) => {
             if (!result) {
-              sql.db_log(
-                "API",
-                "Fehler beim speichern der Rückmeldung von " +
-                  remote_ip +
-                  ": " +
-                  JSON.stringify(data)
-              );
+              sql.db_log("API", "Fehler beim speichern der Rückmeldung von " + remote_ip + ": " + JSON.stringify(data));
             }
           });
         }
@@ -77,10 +53,7 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
 
       // Disconnect
       socket.on("disconnect", () => {
-        sql.db_log(
-          "API",
-          "Schnittstelle von " + remote_ip + " (" + socket.id + ") geschlossen."
-        );
+        sql.db_log("API", "Schnittstelle von " + remote_ip + " (" + socket.id + ") geschlossen.");
         sql.db_client_delete(socket);
       });
     });
@@ -96,29 +69,17 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
 
     // Verbindungsaufbau protokollieren
     remote_api.on("connect", () => {
-      sql.db_log(
-        "API",
-        "Verbindung mit " + app_cfg.endpoint.host + " hergestellt"
-      );
+      sql.db_log("API", "Verbindung mit " + app_cfg.endpoint.host + " hergestellt");
     });
 
     // Fehler protokollieren
     remote_api.on("connect_error", (err) => {
-      sql.db_log(
-        "API",
-        "Verbindung zu " + app_cfg.endpoint.host + " verloren, Fehler: " + err
-      );
+      sql.db_log("API", "Verbindung zu " + app_cfg.endpoint.host + " verloren, Fehler: " + err);
     });
 
     // Verbindungsabbau protokollieren
     remote_api.on("disconnect", (reason) => {
-      sql.db_log(
-        "API",
-        "Verbindung zu " +
-          app_cfg.endpoint.host +
-          " verloren, Fehler: " +
-          reason
-      );
+      sql.db_log("API", "Verbindung zu " + app_cfg.endpoint.host + " verloren, Fehler: " + reason);
     });
 
     // neuer Einsatz vom Endpoint-Server
@@ -130,20 +91,9 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
         // nicht erwuenschte Daten ggf. enfernen (Datenschutzoption)
         saver.save_new_waip(data, app_cfg.endpoint.host, app_id);
         if (app_cfg.global.development) {
-          sql.db_log(
-            "API",
-            "Neuer Wachalarm von " +
-              app_cfg.endpoint.host +
-              ": " +
-              JSON.stringify(data)
-          );
+          sql.db_log("API", "Neuer Wachalarm von " + app_cfg.endpoint.host + ": " + JSON.stringify(data));
         } else {
-          sql.db_log(
-            "API",
-            "Neuer Wachalarm von " +
-              app_cfg.endpoint.host +
-              ". Wird verarbeitet."
-          );
+          sql.db_log("API", "Neuer Wachalarm von " + app_cfg.endpoint.host + ". Wird verarbeitet.");
         }
       }
     });
@@ -154,22 +104,11 @@ module.exports = (io, sql, app_cfg, remote_api, saver) => {
       let app_id = raw_data.app_id;
       // nur speichern wenn app_id nicht eigenen globalen app_id entspricht
       if (app_id != app_cfg.global.app_id) {
-        saver.save_new_rmld(
-          data,
-          app_cfg.endpoint.host,
-          app_id,
-          function (result) {
-            if (!result) {
-              sql.db_log(
-                "API",
-                "Fehler beim speichern der Rückmeldung von " +
-                  app_cfg.endpoint.host +
-                  ": " +
-                  JSON.stringify(data)
-              );
-            }
+        saver.save_new_rmld(data, app_cfg.endpoint.host, app_id, function (result) {
+          if (!result) {
+            sql.db_log("API", "Fehler beim speichern der Rückmeldung von " + app_cfg.endpoint.host + ": " + JSON.stringify(data));
           }
-        );
+        });
       }
     });
   }

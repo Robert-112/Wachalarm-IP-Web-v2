@@ -10,10 +10,7 @@ module.exports = (db, app_cfg) => {
   const h3_res_resource = 8;
 
   // Variable um zu erkennen, ob eine UUID-Syntax korrekt ist
-  const uuid_pattern = new RegExp(
-    "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    "i"
-  );
+  const uuid_pattern = new RegExp("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i");
 
   // Hilfsfunktion um Datum&Zeit (29.12.23&20:06) in SQLite-Zeit umzuwandeln
   const Datetime_to_SQLiteDate = (s) => {
@@ -34,8 +31,7 @@ module.exports = (db, app_cfg) => {
       if (simpledate.test(s)) {
         let day = s.substring(0, 2);
         let month = s.substring(3, 5);
-        let year =
-          d.getFullYear().toString().substring(0, 2) + s.substring(6, 8);
+        let year = d.getFullYear().toString().substring(0, 2) + s.substring(6, 8);
         let hour = s.substring(9, 11);
         let min = s.substring(12, 14);
         d.setDate(day);
@@ -59,37 +55,25 @@ module.exports = (db, app_cfg) => {
     return new Promise(async (resolve, reject) => {
       // zunaechst bestehende UUID ermitteln oder neu erzeugen
       try {
-        let mission_uuid = await db_get_mission_uuid_by_enr(
-          content.einsatzdaten.nummer
-        );
+        let mission_uuid = await db_get_mission_uuid_by_enr(content.einsatzdaten.nummer);
         if (mission_uuid.uuid) {
           // wenn ein Einsatz mit UUID schon vorhanden ist, dann diese ersetzen / überschreiben
           content.einsatzdaten.uuid = mission_uuid.uuid;
         } else {
           // uuid erzeugen und zuweisen falls nicht bereits in JSON vorhanden, oder falls keine korrekte uuid
-          if (
-            !content.einsatzdaten.uuid ||
-            !uuid_pattern.test(content.einsatzdaten.uuid)
-          ) {
+          if (!content.einsatzdaten.uuid || !uuid_pattern.test(content.einsatzdaten.uuid)) {
             content.einsatzdaten.uuid = uuidv4();
           }
         }
       } catch (error) {
         // wenn noch keine Einsatz-UUID vorhanden oder keine korrekte UUID, dann eine UUID erzeugen
-        if (
-          !content.einsatzdaten.uuid ||
-          !uuid_pattern.test(content.einsatzdaten.uuid)
-        ) {
+        if (!content.einsatzdaten.uuid || !uuid_pattern.test(content.einsatzdaten.uuid)) {
           content.einsatzdaten.uuid = uuidv4();
         }
       }
 
       // H3-ID für Ortsdaten erstellen
-      content.ortsdaten.geo_h3_index = h3.latLngToCell(
-        content.ortsdaten.wgs84_y,
-        content.ortsdaten.wgs84_x,
-        h3_res_mission
-      );
+      content.ortsdaten.geo_h3_index = h3.latLngToCell(content.ortsdaten.wgs84_y, content.ortsdaten.wgs84_x, h3_res_mission);
 
       try {
         // Einsatzdaten verarbeiten/speichern
@@ -161,14 +145,7 @@ module.exports = (db, app_cfg) => {
                 ?, ?, ?, ?, ?, ?);
             `);
 
-            stmt.run(
-              item.wachenname,
-              item.einsatzmittel,
-              id,
-              item.wachenname,
-              item.einsatzmittel,
-              Datetime_to_SQLiteDate(item.zeit_a)
-            );
+            stmt.run(item.wachenname, item.einsatzmittel, id, item.wachenname, item.einsatzmittel, Datetime_to_SQLiteDate(item.zeit_a));
 
             // Schleife erhoehen
             itemsProcessed++;
@@ -180,9 +157,7 @@ module.exports = (db, app_cfg) => {
           });
         }
       } catch (error) {
-        reject(
-          new Error("Fehler beim Speichern der Einsatzgrunddaten. " + error)
-        );
+        reject(new Error("Fehler beim Speichern der Einsatzgrunddaten. " + error));
       }
     });
   };
@@ -205,12 +180,7 @@ module.exports = (db, app_cfg) => {
           select_reset_counter = dts;
         } else {
           // wenn user_id vorhanden ist, dann Abfrage so anpassen, dass höchstmögliche Ablaufzeit verwendet wird
-          select_reset_counter =
-            "(SELECT COALESCE(MAX(reset_counter), " +
-            dts +
-            ") reset_counter FROM waip_user_config WHERE user_id = " +
-            user_id +
-            ")";
+          select_reset_counter = "(SELECT COALESCE(MAX(reset_counter), " + dts + ") reset_counter FROM waip_user_config WHERE user_id = " + user_id + ")";
         }
 
         // Einsätze für die gewählte Wachen-ID abfragen und zudem die Ablaufzeit beachten
@@ -238,16 +208,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der Einsätze für Wachen-ID " +
-              wachen_id +
-              " (Socket-User-ID: " +
-              user_id +
-              "). " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der Einsätze für Wachen-ID " + wachen_id + " (Socket-User-ID: " + user_id + "). " + error));
       }
     });
   };
@@ -266,14 +227,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Prüfen der UUID " +
-              uuid +
-              " für einen Einsatz. " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Prüfen der UUID " + uuid + " für einen Einsatz. " + error));
       }
     });
   };
@@ -287,25 +241,16 @@ module.exports = (db, app_cfg) => {
         // let missiondata = Object.assign({}, einsatzdaten);
 
         // Einsatzdaten in kurze UUID-Strings umwandeln, diese UUIDs werden dann verglichen
-        let uuid_em_alarmiert = uuidv5(
-          JSON.stringify(einsatzdaten.em_alarmiert),
-          custom_namespace
-        );
+        let uuid_em_alarmiert = uuidv5(JSON.stringify(einsatzdaten.em_alarmiert), custom_namespace);
         delete einsatzdaten.em_alarmiert;
-        let uuid_em_weitere = uuidv5(
-          JSON.stringify(einsatzdaten.em_weitere),
-          custom_namespace
-        );
+        let uuid_em_weitere = uuidv5(JSON.stringify(einsatzdaten.em_weitere), custom_namespace);
         delete einsatzdaten.em_weitere;
         delete einsatzdaten.zeitstempel;
         delete einsatzdaten.ablaufzeit;
         delete einsatzdaten.wgs84_x;
         delete einsatzdaten.wgs84_y;
         delete einsatzdaten.wgs84_area;
-        let uuid_einsatzdaten = uuidv5(
-          JSON.stringify(einsatzdaten),
-          custom_namespace
-        );
+        let uuid_einsatzdaten = uuidv5(JSON.stringify(einsatzdaten), custom_namespace);
 
         // Abfrage ob zu Socket und Waip-ID bereits History-Daten hinterlegt sind
         const stmt = db.prepare(`
@@ -327,13 +272,7 @@ module.exports = (db, app_cfg) => {
               ?, ?, ?, ?
             );  
           `);
-          const info = stmt.run(
-            waip_id,
-            socket_id,
-            uuid_einsatzdaten,
-            uuid_em_alarmiert,
-            uuid_em_weitere
-          );
+          const info = stmt.run(waip_id, socket_id, uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere);
 
           // Check-History = false
           resolve(info.changes);
@@ -350,13 +289,7 @@ module.exports = (db, app_cfg) => {
               ) AND 
               socket_id LIKE ? ;
           `);
-          const info = stmt.run(
-            uuid_einsatzdaten,
-            uuid_em_alarmiert,
-            uuid_em_weitere,
-            waip_id,
-            socket_id
-          );
+          const info = stmt.run(uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere, waip_id, socket_id);
 
           resolve(info.changes);
         }
@@ -377,13 +310,7 @@ module.exports = (db, app_cfg) => {
           let len = wachen_nr.toString().length;
           // TODO hier auch andere Wachennummern berücksichtigen (z.B. 521201b)
           // wachen_nr muss 2, 4 oder 6 Zeichen lang sein
-          if (
-            parseInt(wachen_nr) != 0 &&
-            len != 2 &&
-            len != 4 &&
-            len != 6 &&
-            len == null
-          ) {
+          if (parseInt(wachen_nr) != 0 && len != 2 && len != 4 && len != 6 && len == null) {
             resolve(null);
           } else {
             // wenn wachen_nr 0, dann % fuer Abfrage festlegen
@@ -412,11 +339,7 @@ module.exports = (db, app_cfg) => {
               ORDER BY e.id DESC LIMIT 1;
             `);
 
-            let einsatzdaten = stmt.get(
-              app_cfg.global.default_time_for_standby,
-              user_id,
-              waip_id
-            );
+            let einsatzdaten = stmt.get(app_cfg.global.default_time_for_standby, user_id, waip_id);
 
             if (einsatzdaten === undefined) {
               resolve(null);
@@ -453,14 +376,7 @@ module.exports = (db, app_cfg) => {
           }
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Zusammenstellen der Einsatzdaten für WAIP-ID: " +
-              waip_id +
-              ". " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Zusammenstellen der Einsatzdaten für WAIP-ID: " + waip_id + ". " + error));
       }
     });
   };
@@ -504,9 +420,7 @@ module.exports = (db, app_cfg) => {
           resolve(einsatzdaten);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler ermitteln eines Einsatzes über die UUID. " + error)
-        );
+        reject(new Error("Fehler ermitteln eines Einsatzes über die UUID. " + error));
       }
     });
   };
@@ -527,13 +441,7 @@ module.exports = (db, app_cfg) => {
           resolve(row.uuid);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der UUID eines Einsatzes mit der Einsatznummer " +
-              einsatz_nr +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der UUID eines Einsatzes mit der Einsatznummer " + einsatz_nr + error));
       }
     });
   };
@@ -554,13 +462,7 @@ module.exports = (db, app_cfg) => {
           resolve(row.id);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der ID eines Einsatzes mit der UUID " +
-              waip_uuid +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der ID eines Einsatzes mit der UUID " + waip_uuid + error));
       }
     });
   };
@@ -588,9 +490,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler beim Abfragen aller aktiven Einsätze. " + error)
-        );
+        reject(new Error("Fehler beim Abfragen aller aktiven Einsätze. " + error));
       }
     });
   };
@@ -621,14 +521,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen Socket-IO-Räume für Einsatz " +
-              waip_id +
-              ". " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen Socket-IO-Räume für Einsatz " + waip_id + ". " + error));
       }
     });
   };
@@ -650,14 +543,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der zu löschender Einsätze welche älter als " +
-              ablauf_minuten +
-              " Minuten sind. " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der zu löschender Einsätze welche älter als " + ablauf_minuten + " Minuten sind. " + error));
       }
     });
   };
@@ -678,14 +564,7 @@ module.exports = (db, app_cfg) => {
         // Anzahl der gelöschten Einsätze zurückgeben
         resolve(info.changes);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Löschen der Daten zum Einsatz mit der ID " +
-              einsatz_id +
-              ". " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Löschen der Daten zum Einsatz mit der ID " + einsatz_id + ". " + error));
       }
     });
   };
@@ -716,12 +595,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der verfügbaren Wachen / Alarmmonitore. " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der verfügbaren Wachen / Alarmmonitore. " + error));
       }
     });
   };
@@ -801,14 +675,7 @@ module.exports = (db, app_cfg) => {
         }
         const stmt = db.prepare(``);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Überprüfen der Wachennummer " +
-              wachen_nr +
-              ". " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Überprüfen der Wachennummer " + wachen_nr + ". " + error));
       }
     });
   };
@@ -843,14 +710,7 @@ module.exports = (db, app_cfg) => {
           resolve(funkrufname);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Übersetzen des Funkrufnamens " +
-              funkrufname +
-              " für Text-to-Speech. " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Übersetzen des Funkrufnamens " + funkrufname + " für Text-to-Speech. " + error));
       }
     });
   };
@@ -862,10 +722,7 @@ module.exports = (db, app_cfg) => {
         let user_name = socket.request.user.user;
         let user_permissions = socket.request.user.permissions;
         let user_agent = socket.request.headers["user-agent"];
-        let client_ip =
-          socket.handshake.headers["x-real-ip"] ||
-          socket.handshake.headers["x-forwarded-for"] ||
-          socket.request.connection.remoteAddress;
+        let client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers["x-forwarded-for"] || socket.request.connection.remoteAddress;
         let reset_timestamp = socket.request.user.reset_counter;
         // Standby wenn Client-Status keine Nummer oder Null
         if (isNaN(client_status) || client_status == null) {
@@ -908,29 +765,10 @@ module.exports = (db, app_cfg) => {
             (SELECT DATETIME(zeitstempel, \'+ ? minutes\') FROM waip_einsaetze WHERE id = ?)
           );        
         `);
-        const info = stmt.run(
-          socket.id,
-          socket.id,
-          client_ip,
-          socket.rooms[Object.keys(socket.rooms)[0]],
-          client_status,
-          user_name,
-          user_permissions,
-          user_agent,
-          reset_timestamp,
-          client_status
-        );
+        const info = stmt.run(socket.id, socket.id, client_ip, socket.rooms[Object.keys(socket.rooms)[0]], client_status, user_name, user_permissions, user_agent, reset_timestamp, client_status);
         resolve(info.changes);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler bei Aktualisierung des Clientstatus. Status:" +
-              client_status +
-              ", Socket: " +
-              socket +
-              error
-          )
-        );
+        reject(new Error("Fehler bei Aktualisierung des Clientstatus. Status:" + client_status + ", Socket: " + socket + error));
       }
     });
   };
@@ -949,9 +787,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler beim abfragen der verbundenen Clients:" + error)
-        );
+        reject(new Error("Fehler beim abfragen der verbundenen Clients:" + error));
       }
     });
   };
@@ -966,9 +802,7 @@ module.exports = (db, app_cfg) => {
         const info = stmt.run(socket.id);
         resolve(info.changes);
       } catch (error) {
-        reject(
-          new Error("Fehler beim löschen eines Clients. " + socket + error)
-        );
+        reject(new Error("Fehler beim löschen eines Clients. " + socket + error));
       }
     });
   };
@@ -991,14 +825,7 @@ module.exports = (db, app_cfg) => {
           }
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler bei Einsatzprüfung für einen Client. " +
-              socket_id +
-              waip_id +
-              error
-          )
-        );
+        reject(new Error("Fehler bei Einsatzprüfung für einen Client. " + socket_id + waip_id + error));
       }
     });
   };
@@ -1038,11 +865,7 @@ module.exports = (db, app_cfg) => {
           resolve(info.changes);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Schreiben eines Log-Eintrags. " + typ + text + error
-          )
-        );
+        reject(new Error("Fehler beim Schreiben eines Log-Eintrags. " + typ + text + error));
       }
     });
   };
@@ -1061,9 +884,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler beim Abfragen der letzten Log-Einträge. " + error)
-        );
+        reject(new Error("Fehler beim Abfragen der letzten Log-Einträge. " + error));
       }
     });
   };
@@ -1082,13 +903,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen eines Client-Eintrags über die Socket-ID. " +
-              socket_id +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen eines Client-Eintrags über die Socket-ID. " + socket_id + error));
       }
     });
   };
@@ -1108,13 +923,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen einer Socket-ID über einen Raumnamen. " +
-              room_name +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen einer Socket-ID über einen Raumnamen. " + room_name + error));
       }
     });
   };
@@ -1134,13 +943,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen der Socket-IDs (Dashboard). " +
-              waip_id +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen der Socket-IDs (Dashboard). " + waip_id + error));
       }
     });
   };
@@ -1160,12 +963,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Abfragen Socket-IDs für Clients in Standby gehen sollen. " +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Abfragen Socket-IDs für Clients in Standby gehen sollen. " + error));
       }
     });
   };
@@ -1175,12 +973,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         // reset_counter validieren, ansonsten auf default setzen
-        if (
-          !(
-            reset_counter >= 1 &&
-            reset_counter <= app_cfg.global.time_to_delete_waip
-          )
-        ) {
+        if (!(reset_counter >= 1 && reset_counter <= app_cfg.global.time_to_delete_waip)) {
           reset_counter = app_cfg.global.default_time_for_standby;
         }
         // Benutzer-Einstellungen speichern
@@ -1196,14 +989,7 @@ module.exports = (db, app_cfg) => {
         const info = stmt.run(user_id, user_id, reset_counter);
         resolve(info.changes);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim speichern / aktualisieren von Benutzer-Einstellungen. " +
-              user_id +
-              reset_counter +
-              error
-          )
-        );
+        reject(new Error("Fehler beim speichern / aktualisieren von Benutzer-Einstellungen. " + user_id + reset_counter + error));
       }
     });
   };
@@ -1223,11 +1009,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim laden von Benutzer-Einstellungen. " + user_id + error
-          )
-        );
+        reject(new Error("Fehler beim laden von Benutzer-Einstellungen. " + user_id + error));
       }
     });
   };
@@ -1276,9 +1058,7 @@ module.exports = (db, app_cfg) => {
           } else {
             // Berechtigungen mit Wache vergleichen, wenn gefunden, dann true, sonst false
             let permission_arr = user_obj.permissions.split(",");
-            const found = permission_arr.some(
-              (r) => row.wache.search(RegExp("," + r + "|\\b" + r)) >= 0
-            );
+            const found = permission_arr.some((r) => row.wache.search(RegExp("," + r + "|\\b" + r)) >= 0);
             if (found) {
               resolve(true);
             } else {
@@ -1287,14 +1067,7 @@ module.exports = (db, app_cfg) => {
           }
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Überprüfen der Berechtigungen eines Benutzers. " +
-              user_obj +
-              waip_id +
-              error
-          )
-        );
+        reject(new Error("Fehler beim Überprüfen der Berechtigungen eines Benutzers. " + user_obj + waip_id + error));
       }
     });
   };
@@ -1354,11 +1127,7 @@ module.exports = (db, app_cfg) => {
         );
         resolve(rmld_obj.response_uuid);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim verarbeiten einer Rückmeldung. " + rmld_obj + error
-          )
-        );
+        reject(new Error("Fehler beim verarbeiten einer Rückmeldung. " + rmld_obj + error));
       }
     });
   };
@@ -1380,14 +1149,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim laden von Rückmeldungen für eine Wache. " +
-              waip_einsaetze_id +
-              wachen_nr +
-              error
-          )
-        );
+        reject(new Error("Fehler beim laden von Rückmeldungen für eine Wache. " + waip_einsaetze_id + wachen_nr + error));
       }
     });
   };
@@ -1408,13 +1170,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim laden einer Rückmeldung über die Rückmelde-UUID. " +
-              rmld_uuid +
-              error
-          )
-        );
+        reject(new Error("Fehler beim laden einer Rückmeldung über die Rückmelde-UUID. " + rmld_uuid + error));
       }
     });
   };
@@ -1429,11 +1185,7 @@ module.exports = (db, app_cfg) => {
         const info = stmt.run(waip_uuid);
         resolve(info.changes);
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim löschen von Rückmeldungen. " + waip_uuid + error
-          )
-        );
+        reject(new Error("Fehler beim löschen von Rückmeldungen. " + waip_uuid + error));
       }
     });
   };
@@ -1468,14 +1220,7 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim laden von Rückmeldungen für den Export. " +
-              waip_einsatznummer +
-              waip_uuid +
-              error
-          )
-        );
+        reject(new Error("Fehler beim laden von Rückmeldungen für den Export. " + waip_einsatznummer + waip_uuid + error));
       }
     });
   };
@@ -1515,13 +1260,7 @@ module.exports = (db, app_cfg) => {
           resolve(null);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim laden von Empfängern für den Export. " +
-              arry_wachen +
-              error
-          )
-        );
+        reject(new Error("Fehler beim laden von Empfängern für den Export. " + arry_wachen + error));
       }
     });
   };
@@ -1584,11 +1323,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler bei auth_localstrategy_cryptpassword. " + user + error
-          )
-        );
+        reject(new Error("Fehler bei auth_localstrategy_cryptpassword. " + user + error));
       }
     });
   };
@@ -1607,9 +1342,7 @@ module.exports = (db, app_cfg) => {
           resolve(row);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler bei auth_localstrategy_userid. " + user + error)
-        );
+        reject(new Error("Fehler bei auth_localstrategy_userid. " + user + error));
       }
     });
   };
