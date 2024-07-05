@@ -14,6 +14,7 @@ app_cfg.global = {
   uuid_namespace: "59cc72ec-4ff5-499d-81e2-ec49c1d01252",
   time_to_delete_waip: 4,
   default_time_for_standby: 10,
+  system_cleanup_time: 10000, // Millisekunden nach denen zyklisch aufgeräumt wird
   circumcircle: 5,
   defaultuser: "me",
   defaultpass: "123",

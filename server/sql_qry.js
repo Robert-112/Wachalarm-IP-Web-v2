@@ -272,11 +272,21 @@ module.exports = (db, app_cfg) => {
               ?, ?, ?, ?
             );  
           `);
-          const info = stmt.run(waip_id, socket_id, uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere);
+          stmt.run(waip_id, socket_id, uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere);
 
           // Check-History = false
-          resolve(info.changes);
+          resolve(false);
         } else {
+          // wenn History-Daten hinterlegt sind, dann prüfen ob sich etwas verändert hat
+          let changed;
+          if (uuid_einsatzdaten !== row.uuid_einsatz_grunddaten || uuid_em_alarmiert !== row.uuid_em_alarmiert) {
+            // Grunddaten oder alarmierte Einsatzmittel haben sich verändert, somit History veraltet und neue Alarmierung notwendig
+            changed = false;
+          } else {
+            // relevante Daten haben sich nicht geändert
+            changed = true;
+          }
+
           // History mit aktuellen Daten aktualisieren
           const stmt = db.prepare(`
             UPDATE waip_history SET 
@@ -289,9 +299,9 @@ module.exports = (db, app_cfg) => {
               ) AND 
               socket_id LIKE ? ;
           `);
-          const info = stmt.run(uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere, waip_id, socket_id);
+          stmt.run(uuid_einsatzdaten, uuid_em_alarmiert, uuid_em_weitere, waip_id, socket_id);
 
-          resolve(info.changes);
+          resolve(changed);
         }
       } catch (error) {
         reject(new Error("Fehler beim Prüfen der Einsatz-Historie. " + error));
@@ -527,7 +537,7 @@ module.exports = (db, app_cfg) => {
   };
 
   // veraltete Einsätze finden
-  const db_einsatz_get_old = (ablauf_minuten) => {
+  const db_einsaetze_get_old = (ablauf_minuten) => {
     // BUG '-?' in Abfrage könnte falsch sein, ggf. durch '+ ablauf_minuten +' ersetzen
     return new Promise((resolve, reject) => {
       try {
@@ -1457,7 +1467,7 @@ module.exports = (db, app_cfg) => {
     db_einsatz_get_waipid_by_uuid: db_einsatz_get_waipid_by_uuid,
     db_einsatz_get_active: db_einsatz_get_active,
     db_einsatz_get_rooms: db_einsatz_get_rooms,
-    db_einsatz_get_old: db_einsatz_get_old,
+    db_einsaetze_get_old: db_einsaetze_get_old,
     db_einsatz_loeschen: db_einsatz_loeschen,
     db_wache_get_all: db_wache_get_all,
     db_wache_vorhanden: db_wache_vorhanden,
