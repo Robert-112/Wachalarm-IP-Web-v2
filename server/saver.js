@@ -1,14 +1,20 @@
-const { reject } = require("async");
+module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
+  // Socket-IO Client
+  const io_api = require("socket.io-client");
 
-module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
+  // Remote-Api aktivieren
+  let remote_api;
+  if (app_cfg.endpoint.enabled) {
+    remote_api = io_api.connect(app_cfg.endpoint.host, {
+      reconnect: true,
+    });
+  }
+
   // Module laden
   const turf = require("@turf/turf");
 
   // Variablen festlegen
-  let uuid_pattern = new RegExp(
-    "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    "i"
-  );
+  let uuid_pattern = new RegExp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "i");
 
   // Speichern eines neuen Einsatzes
   const save_new_waip = (waip_data, remote_addr, app_id) => {
@@ -36,32 +42,22 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
             waip_json.ortsdaten.wgs84_area = new_buffer;
           }
           // pruefen, ob vielleicht schon ein Einsatz mit einer UUID gespeichert ist
-          let waip_uuid = await sql.db_einsatz_get_uuid_by_enr(
-            waip_json.einsatzdaten.nummer
-          );
+          let waip_uuid = await sql.db_einsatz_get_uuid_by_enr(waip_json.einsatzdaten.nummer);
           if (waip_uuid) {
             // wenn ein Einsatz mit UUID schon vorhanden ist, dann diese setzten / ueberschreiben
             waip_json.einsatzdaten.uuid = waip_uuid;
           } else {
             // uuid erzeugen und zuweisen falls nicht bereits in JSON vorhanden, oder falls keine korrekte uuid
-            if (
-              !waip_json.einsatzdaten.uuid ||
-              !uuid_pattern.test(waip_json.einsatzdaten.uuid)
-            ) {
+            if (!waip_json.einsatzdaten.uuid || !uuid_pattern.test(waip_json.einsatzdaten.uuid)) {
               waip_json.einsatzdaten.uuid = uuidv4();
             }
           }
-          // nicht erwuenschte Daten ggf. enfernen (Datenschutzoption)
+          // nicht erwuenschte Daten ggf. entfernen (Datenschutzoption)
           let data_filtered = await filter_api_data(waip_json, remote_addr);
 
           waip.waip_speichern(data_filtered);
-          sql.db_log(
-            "WAIP",
-            "Neuer Einsatz von " +
-              remote_addr +
-              " wird jetzt verarbeitet: " +
-              JSON.stringify(data_filtered)
-          );
+          logger.log("log", `Neuer Einsatz von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(data_filtered)}`);
+
           // Einsatzdaten per API weiterleiten (entweder zum Server oder zum verbunden Client)
           api_server_to_client_new_waip(waip_json, app_id);
           api_client_to_server_new_waip(waip_json, app_id);
@@ -69,18 +65,10 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
           resolve(true);
         } else {
           // Error-Meldung erstellen
-          throw new Error(
-            "Fehler beim validieren eines Einsatzes. " + waip_data
-          );
+          throw new Error("Fehler beim validieren eines Einsatzes. " + waip_data);
         }
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim speichern eines neuen Einsatzes (WAIP-JSON). " +
-              remote_addr +
-              error
-          )
-        );
+        reject(new Error("Fehler beim speichern eines neuen Einsatzes (WAIP-JSON). " + remote_addr + error));
       }
     });
   };
@@ -92,13 +80,8 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         if (valid) {
           // Rueckmeldung speichern und verteilen
           await sql.db_rmld_save(rmld_data);
-          sql.db_log(
-            "RMLD",
-            "Rückmeldung von " +
-              remote_addr +
-              " erhalten und gespeichert: " +
-              JSON.stringify(rmld_data)
-          );
+          logger.log("log", `Rückmeldung von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
+
           waip.rmld_verteilen_by_uuid(rmld_data.waip_uuid, rmld_data.rmld_uuid);
           // RMLD-Daten per API weiterleiten (entweder zum Server oder zum verbunden Client)
           api_server_to_client_new_rmld(rmld_data, app_id);
@@ -107,16 +90,10 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
           resolve(true);
         } else {
           // Error-Meldung erstellen
-          throw new Error(
-            "Fehler beim validieren einer Rückmeldung. " + rmld_data
-          );
+          throw new Error("Fehler beim validieren einer Rückmeldung. " + rmld_data);
         }
       } catch (error) {
-        new Error(
-          "Fehler beim speichern einer neuen Rückmeldung (RMLD). " +
-            remote_addr +
-            error
-        );
+        new Error("Fehler beim speichern einer neuen Rückmeldung (RMLD). " + remote_addr + error);
       }
     });
   };
@@ -140,10 +117,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
             /^[\],:{}\s]*$/.test(
               text
                 .replace(/\\["\\\/bfnrtu]/g, "@")
-                .replace(
-                  /"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g,
-                  "]"
-                )
+                .replace(/"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g, "]")
                 .replace(/(?:^|:|,)(?:\s*\[)+/g, "")
             )
           ) {
@@ -154,15 +128,9 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
           }
         }
         // Log
-        if (app_cfg.global.development) {
-          console.log("Validierung WAIP: " + JSON.stringify(data));
-        }
+        logger.log("debug", "Validierung WAIP: " + JSON.stringify(data));
       } catch (error) {
-        reject(
-          new Error(
-            "Fehler beim Validieren einer WAIP-Einsatzmeldung " + data + error
-          )
-        );
+        reject(new Error("Fehler beim Validieren einer WAIP-Einsatzmeldung " + data + error));
       }
     });
   };
@@ -173,15 +141,11 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         // TODO Validierung: Rückmeldung auf Plausibilität
 
         // Log
-        if (app_cfg.global.development) {
-          console.log("Validierung RMLD: " + JSON.stringify(data));
-        }
+        logger.log("debug", "Validierung RMLD: " + JSON.stringify(data));
 
         resolve(true);
       } catch (error) {
-        reject(
-          new Error("Fehler beim Validieren einer Rückmeldung " + data + error)
-        );
+        reject(new Error("Fehler beim Validieren einer Rückmeldung " + data + error));
       }
     });
   };
@@ -197,7 +161,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         data: data,
         app_id: app_id,
       });
-      sql.db_log("API", "Einsatz an Clients gesendet: " + JSON.stringify(data));
+      logger.db_log("API", "Einsatz an Clients gesendet: " + JSON.stringify(data));
     }
   };
 
@@ -212,10 +176,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         data: data,
         app_id: app_id,
       });
-      sql.db_log(
-        "API",
-        "Rückmeldung an Clients gesendet: " + JSON.stringify(data)
-      );
+      logger.db_log("API", "Rückmeldung an Clients gesendet: " + JSON.stringify(data));
     }
   };
 
@@ -230,13 +191,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         data: data,
         app_id: app_id,
       });
-      sql.db_log(
-        "API",
-        "Neuen Wachalarm an " +
-          app_cfg.endpoint.host +
-          " gesendet: " +
-          JSON.stringify(data)
-      );
+      logger.db_log("API", "Neuen Einsatz an " + app_cfg.endpoint.host + " gesendet: " + JSON.stringify(data));
     }
   };
 
@@ -251,20 +206,13 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
         data: data,
         app_id: app_id,
       });
-      sql.db_log(
-        "API",
-        "Rückmeldung an " +
-          app_cfg.endpoint.host +
-          " gesendet: " +
-          JSON.stringify(data)
-      );
+      logger.db_log("API", "Rückmeldung an " + app_cfg.endpoint.host + " gesendet: " + JSON.stringify(data));
     }
   };
 
   const filter_api_data = (data, remote_ip) => {
     return new Promise((resolve, reject) => {
       try {
-        // unnoetige Zeichen aus socket_id entfernen, um diese als Dateinamen zu verwenden
         if (app_cfg.filter.enabled) {
           // Filter nur anwenden wenn Einsatzdaten von bestimmten IP-Adressen kommen
           if (app_cfg.filter.on_message_from.includes(remote_ip)) {
@@ -292,9 +240,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, remote_api) => {
           resolve(data);
         }
       } catch (error) {
-        reject(
-          new Error("Fehler beim Filtern der übergebenen Daten. " + error)
-        );
+        reject(new Error("Fehler beim Filtern der übergebenen Daten. " + error));
       }
     });
   };

@@ -20,7 +20,7 @@ header
             a.text-nowrap.dropdown-item(href='/impressum') &nbsp;Impressum
             a.text-nowrap.dropdown-item(href='/datenschutz') &nbsp;Datenschutzerkl&auml;ung
             .dropdown-divider
-            a.text-nowrap.dropdown-item(href='/about') &nbsp;&Uuml;ber diese Anwendung     
+            a.text-nowrap.dropdown-item(href='/ueber') &nbsp;&Uuml;ber diese Anwendung     
         if user
           if user.permissions == 'admin'
             li.text-nowrap.nav-item.dropdown
@@ -35,7 +35,7 @@ header
                 a.text-nowrap.dropdown-item.text-danger.ion-md-warning(href='/adm_run_alert') &nbsp;Test-Alarm versenden
                 a.text-nowrap.dropdown-item.ion-md-book(href='/adm_show_log') &nbsp;Log-Datei einsehen
           li.nav-item.pr-3(class=(title == 'Einstellungen') ? 'active' : null)
-            a.text-nowrap.ion-md-settings.nav-link(href='/config') &nbsp;Einstellungen                 
+            a.text-nowrap.ion-md-settings.nav-link(href='/einstellungen') &nbsp;Einstellungen                 
           li.nav-item
             form(action='/logout', method='POST')
               button.btn.btn-dark.text-nowrap.ion-md-log-out(type='submit')=' \''+user.user +'\' abmelden'         

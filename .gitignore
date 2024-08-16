@@ -54,6 +54,9 @@ typings/
 # Yarn Integrity file
 .yarn-integrity
 
+# Visual Studio Code
+.vscode/
+
 # dotenv environment variables file
 .env
 
@@ -62,9 +65,6 @@ typings/
 
 # prettier-config
 .prettierrc
-
-# vscode
-.vscode/
 
 # vuepress build output
 .vuepress/dist
@@ -80,6 +80,8 @@ _old/
 
 # db
 *.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 *.db
 sessions
 

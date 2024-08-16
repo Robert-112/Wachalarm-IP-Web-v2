@@ -8,22 +8,24 @@
   },
   "license": "Creative Commons Attribution Share Alike 4.0 International",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js",
+    "debug": "DEBUG=* node index.js"
   },
   "dependencies": {
     "@turf/turf": "^7.0.0",
     "async": "^3.2.5",
     "bcrypt": "^5.1.1",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^11.1.2",
     "body-parser": "^1.20.2",
     "compression": "^1.7.4",
     "connect-sqlite3": "^0.9.15",
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
+    "h3-js": "^4.1.0",
     "json2csv": "^5.0.1",
     "nodemailer": "^6.9.14",
-    "npm": "^10.8.1",
+    "npm": "^10.8.2",
     "passport": "^0.7.0",
     "passport-ip": "^0.1.2",
     "passport-local": "^1.0.0",

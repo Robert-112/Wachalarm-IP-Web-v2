@@ -13,7 +13,7 @@ block content
                   p Anzeigezeit für Wachalarme
                   p.text-muted (Wachalarme werden nach Ablauf der hier gesetzten Zeit automatisch ausgeblendet)
                 .col-4
-                  form(action="/config", method="POST")
+                  form(action="/einstellungen", method="POST")
                     .form-group
                       label(for='ResetCounterSelect') Zeit in Minuten
                       select#ResetCounterSelect.form-control(name='set_reset_counter', onchange='this.form.submit()')

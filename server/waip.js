@@ -1,6 +1,7 @@
-module.exports = (io, sql, fs, async, app_cfg) => {
+module.exports = (io, sql, fs, logger, app_cfg) => {
   // Module laden
   const { parse } = require("json2csv");
+  const async = require("async");
   const nodemailer = require("nodemailer");
   let proc = require("child_process");
 
@@ -9,31 +10,25 @@ module.exports = (io, sql, fs, async, app_cfg) => {
       try {
         // Roh-Einsatzdaten  in Datenbank speichern und ID des Einsatzes zurückbekommen
         const waip_id = await sql.db_einsatz_speichern(einsatz_daten);
-
-        const logMessage = `Neuen Einsatz mit der ID ${waip_id} gespeichert.`;
-        sql.db_log("DEBUG", logMessage);
+        logger.db_log("waip", `Neuen Einsatz mit der ID ${waip_id} gespeichert.`);
 
         // nach dem Speichern anhand der waip_id die beteiligten Wachennummern / Socket-Räume zum Einsatz ermitteln
-        const socket_rooms = await sql.db_einsatz_get_rooms(waip_id);
+        const waip_raeume = await sql.db_einsatz_get_rooms(waip_id);
 
-        // socket_rooms muss größer sein, da sonst nur der Standard-Raum '0' vorhanden ist
-        if (socket_rooms.length > 1) {
-          socket_rooms.forEach((rooms) => {
-            // fuer jede Wache(rooms.room) die verbundenen Sockets(Clients) ermitteln und den Einsatz passend zu verteilen
-            const room_sockets = io.nsps["/waip"].adapter.rooms[rooms.room];
-            if (typeof room_sockets !== "undefined") {
-              for (const socket_id in room_sockets.sockets) {
-                const socket = io.of("/waip").connected[socket_id];
-                waip_verteilen(waip_id, socket, rooms.room);
-                const logMessage = `Einsatz ${waip_id} wird an ${socket.id} (${rooms.room}) gesendet`;
-                sql.db_log("WAIP", logMessage);
-              }
-            }
+        // waip_rooms muss größer 1 sein, da sonst nur der Standard-Raum '0' vorhanden ist
+        if (waip_raeume.length > 1) {
+          waip_raeume.forEach(async (waip_raum) => {
+            // fuer jeden Websocket-Raum (z.B. Wache oder Träger) die verbundenen Sockets(Clients) ermitteln  
+            const sockets = await io.of("/waip").in(waip_raum).fetchSockets();          
+            sockets.forEach((socket) => {
+              // Einsatzdaten an Client senden
+              waip_verteilen(waip_id, socket, waip_raum);
+              logger.db_log("waip", `Einsatz ${waip_id} wird an ${socket.id} (${waip_raum}) gesendet.`);
+            });
           });
         } else {
           // wenn kein Raum (keine Wache) ausser '0' zurueckgeliefert wird, dann Einsatz direkt wieder loeschen weil keine Wachen dazu hinterlegt
-          const logMessage = `Fehler: Keine Wache für den Einsatz mit der ID ${waip_id} vorhanden! Einsatz wird gelöscht!`;
-          sql.db_log("Fehler-WAIP", logMessage);
+          logger.log("warn", `Keine Wache für den Einsatz mit der ID ${waip_id} vorhanden! Einsatz wird gelöscht!`);
           // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
           sql.db_einsatz_loeschen(waip_id);
         }
@@ -55,8 +50,7 @@ module.exports = (io, sql, fs, async, app_cfg) => {
           // wenn keine Einsatzdaten, dann Standby senden
           socket.emit("io.standby", null);
           sql.db_client_update_status(socket, null);
-          const logMessage = `Kein Einsatz für Wache ${wachen_nr} vorhanden, Standby an Socket ${socket.id} gesendet.`;
-          sql.db_log("WAIP", logMessage);
+          logger.db_log("waip", `Kein Einsatz für Wache ${wachen_nr} vorhanden, Standby an Socket ${socket.id} gesendet.`);
         } else {
           // Berechtigung des Users ueberpruefen
           const valid = await sql.db_user_check_permission(user_obj, waip_id);
@@ -78,22 +72,20 @@ module.exports = (io, sql, fs, async, app_cfg) => {
             socket.emit("io.new_waip", einsatzdaten);
 
             // Protokollieren
-            const logMessage = `Einsatz ${waip_id} für Wache ${wachen_nr} an Socket ${socket.id} gesendet.`;
-            sql.db_log("WAIP", logMessage);
+            logger.db_log("waip", `Einsatz ${waip_id} für Wache ${wachen_nr} an Socket ${socket.id} gesendet.`);
+        
             sql.db_client_update_status(socket, waip_id);
 
             // Sound erstellen
             const tts = await tts_erstellen(app_cfg, socket.id, einsatzdaten);
-
             if (tts) {
               // Sound-Link senden
               socket.emit("io.playtts", tts);
-              sql.db_log("WAIP", "ttsfile: " + tts);
+              logger.log("log", `ttsfile ${tts}`);
             }
           } else {
             // Log das Einsatz explizit nicht an Client gesendet wurde
-            const logMessage = `Einsatz ${waip_id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, da bereits angezeigt (Doppelalarmierung).`;
-            sql.db_log("WAIP", logMessage);
+            logger.db_log("waip", `Einsatz ${waip_id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, da bereits angezeigt (Doppelalarmierung).`);
           }
         }
       } catch (error) {
@@ -353,9 +345,7 @@ module.exports = (io, sql, fs, async, app_cfg) => {
               let lxshell_options = {
                 shell: true,
               };
-              if (app_cfg.global.development) {
-                console.log(commands);
-              }
+              logger.log("debug", `Erstellung der TTS-Datei: ${commands}`);
               let lxshell_childD = proc.spawn("/bin/sh", lxshell_commands);
               lxshell_childD.stdin.setEncoding("ascii");
               lxshell_childD.stderr.setEncoding("ascii");
@@ -452,6 +442,7 @@ module.exports = (io, sql, fs, async, app_cfg) => {
           sql.db_export_get_rmld(waip.einsatznummer, waip.uuid, (full_rmld) => {
             // beteiligte Wachen aus den Einsatz-Rueckmeldungen filtern
             let arry_wachen = full_rmld.map((a) => a.wache_nr);
+            logger.log("debug", "Export-Liste RMLD: " + JSON.stringify(arry_wachen));
             sql.db_export_get_recipient(arry_wachen, (export_data) => {
               // SQL gibt ist eine Schliefe (db.each), fuer jedes Ergebnis wird eine CSV/Mail erstellt
               if (export_data) {

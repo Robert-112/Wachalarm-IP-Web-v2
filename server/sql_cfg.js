@@ -3,6 +3,7 @@ module.exports = (bcrypt, app_cfg) => {
   const Database = require("better-sqlite3");
   const db = new Database(app_cfg.global.database);
   db.pragma("foreign_keys");
+  db.pragma("journal_mode = WAL");
 
   // Datenbank erstellen, falls nicht vorhanden
   const stmt = db.prepare(`
@@ -15,9 +16,9 @@ module.exports = (bcrypt, app_cfg) => {
   const row = stmt.get();
 
   if (row === undefined) {
-    console.warn("Datenbank scheint leer. Tabellen werden angelegt.");
+    console.log("Datenbank scheint leer. Tabellen werden angelegt.");
 
-    const sqlInit = `
+    let sqlInit = `
 
       -- Tabelle für Einsätze
       CREATE TABLE IF NOT EXISTS waip_einsaetze (
@@ -85,14 +86,17 @@ module.exports = (bcrypt, app_cfg) => {
       -- Tabelle für Wachen
       CREATE TABLE IF NOT EXISTS waip_wachen (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-        nr_kreis INTEGER,
+        nr_kreis TEXT,              -- vorher: INTEGER
         nr_traeger TEXT,
-        nr_wache INTEGER,
         nr_standort TEXT,           -- neu
+        nr_abteilung TEXT,          -- neu
+        nr_wache INTEGER,
+        kfz_leitstelle TEXT,        -- neu
+        kfz_kreis TEXT,             -- neu
+        name_leitstelle TEXT,       -- neu
         name_kreis TEXT,
         name_traeger TEXT,
         name_wache TEXT,
-        name_standort TEXT,         -- neu
         name_beschreibung TEXT,     -- neu
         wgs84_x REAL,               -- vorher: wgs84_x TEXT,
         wgs84_y REAL                -- vorher: wgs84_y TEXT
@@ -177,7 +181,7 @@ module.exports = (bcrypt, app_cfg) => {
         opt_iframeurl_1 TEXT,           -- neu
         opt_iframeurl_2 TEXT,           -- neu
         opt_iframeurl_3 TEXT,           -- neu
-        FOREIGN KEY(user_id) REFERENCES waip_users(id)
+        FOREIGN KEY(id_user) REFERENCES waip_users(id)
       );
       
       -- Tabelle für Übersetzungen erstellen
@@ -215,28 +219,20 @@ module.exports = (bcrypt, app_cfg) => {
     db.exec(sqlInit);
 
     // Standard-Admin hinterlegen
-    const hash = bcrypt.hashSync(
-      app_cfg.global.defaultpass,
-      app_cfg.global.saltRounds
-    );
+    const hash = bcrypt.hashSync(app_cfg.global.defaultpass, app_cfg.global.saltRounds);
     const insert_adm = db.prepare(`
       INSERT INTO waip_users ( 
         user, password, permissions, ip_address 
       ) VALUES ( 
         ?, ?, 'admin', ?
       );`);
-    insert_adm.run(
-      app_cfg.global.defaultuser,
-      hash,
-      app_cfg.global.defaultuserip
-    );
+    insert_adm.run(app_cfg.global.defaultuser, hash, app_cfg.global.defaultuserip);
   } else {
-    console.info(
-      "Datenbank existiert bereits, keine Erstellung notwendig. Temporäre Daten werden gelöscht."
-    );
-
     // alte Clients (Sockets) bei Neustart des Servers entfernen
-    db.prepare("DELETE FROM waip_clients)").run();
+    const stmt = db.prepare("DELETE FROM waip_clients");
+    const info = stmt.run();
+
+    console.log("Datenbank existiert bereits, keine Erstellung notwendig. Temporäre Daten in Waip_clients wurden gelöscht:", info.changes);
   }
 
   console.log("Datenbank geöffnet.");

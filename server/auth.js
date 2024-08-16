@@ -1,51 +1,67 @@
-const sql_cfg = require("./sql_cfg");
+module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
+  const session = require("express-session");
+  const flash = require("req-flash");
+  const SQLiteStore = require("connect-sqlite3")(session);
+  const LocalStrategy = require("passport-local").Strategy;
+  const IpStrategy = require("passport-ip").Strategy;
+  const sessionStore = new SQLiteStore();
 
-module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
-  let session = require("express-session");
-  let cookieParser = require("cookie-parser");
-  let flash = require("req-flash");
-  let SQLiteStore = require("connect-sqlite3")(session);
-  let LocalStrategy = require("passport-local").Strategy;
-  let IpStrategy = require("passport-ip").Strategy;
-  let passportSocketIo = require("passport.socketio");
-  let sessionStore = new SQLiteStore({
-    //db: app_cfg.global.database,
-    //concurrentDB: true
+  const sessionMiddleware = session({
+    store: sessionStore,
+    key: "connect.sid",
+    secret: app_cfg.global.sessionsecret,
+    resave: false,
+    saveUninitialized: true,
+    cookie: {
+      maxAge: 60 * 60 * 1000,
+    }, // Standard ist eine Stunde
   });
 
-  app.use(
-    session({
-      store: sessionStore,
-      key: "connect.sid",
-      secret: app_cfg.global.sessionsecret,
-      resave: false,
-      saveUninitialized: true,
-      cookie: {
-        maxAge: 60 * 60 * 1000,
-      }, // Standard ist eine Stunde
-    })
-  );
-  app.use(cookieParser());
+  app.use(sessionMiddleware);
   app.use(flash());
   app.use(passport.initialize());
   app.use(passport.session());
 
-  io.use(
-    passportSocketIo.authorize({
-      cookieParser: cookieParser, // the same middleware you registrer in express
-      key: "connect.sid", // the name of the cookie where express/connect stores its session_id
-      secret: app_cfg.global.sessionsecret, // the session_secret to parse the cookie
-      store: sessionStore, // we NEED to use a sessionstore. no memorystore please
-      success: function (data, accept) {
-        //console.log('successful connection to socket.io');
-        accept(null, true);
-      },
-      fail: function (data, message, error, accept) {
-        //console.log('failed connection to socket.io:', data, message);
-        accept(null, true);
-      },
-    })
-  );
+  // convert a connect middleware to a Socket.IO middleware
+  const wrap = (middleware) => (socket, next) => middleware(socket.request, {}, next);
+
+  // Passport Middleware an /waip Namespace anhängen
+  io.of("/waip").use(wrap(sessionMiddleware));
+  io.of("/waip").use(wrap(passport.initialize()));
+  io.of("/waip").use(wrap(passport.session()));
+  io.of("/waip").use((socket, next) => {
+    if (socket.request.user) {
+      next();
+    } else {
+      // ohne Login als Gast weiter
+      socket.request.user = { id: null, user: "Gast"};
+      next();
+    }
+  });
+
+  // Passport Middleware an /dbrd Namespace anhängen
+  io.of("/dbrd").use(wrap(sessionMiddleware));
+  io.of("/dbrd").use(wrap(passport.initialize()));
+  io.of("/dbrd").use(wrap(passport.session()));
+  io.of("/dbrd").use((socket, next) => {
+    if (socket.request.user) {
+      next();
+    } else {
+      // ohne Login als Gast weiter
+      socket.request.user = { id: null, user: "Gast"};
+      next();
+    }
+  });
+
+  // Passport Middleware an /api Namespace anhängen
+  io.of("/api").use(wrap(sessionMiddleware));
+  io.of("/api").use(wrap(passport.initialize()));
+  io.of("/api").use(wrap(passport.session()));
+  io.of("/api").use((socket, next) => {
+    // TODO hier noch die Authentifizierung für die API einbauen
+    next();
+  });
+
 
   // Benutzerauthentifizierung per Login
   passport.use(
@@ -62,7 +78,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
           const userRow = await sql.auth_localstrategy_userid(user);
           return done(null, userRow);
         } catch (error) {
-          console.error(error);
+          logger.log("error", "Fehler bei der Benutzer-Authentifizierung: " + error);
         }
       }
     )
@@ -85,7 +101,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
             return done(null, row);
           }
         } catch (error) {
-          console.error(error);
+          logger.log("error", "Fehler bei der IP-Authentifizierung: " + error);
         }
       }
     )
@@ -106,7 +122,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
         return done(null, user);
       }
     } catch (error) {
-      console.error(error);
+      logger.log("error", "Fehler bei passport.deserializeUser: " + error);
     }
   });
 
@@ -129,9 +145,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
         // req.user is available for use here
         return next();
       } else {
-        let err = new Error(
-          "Sie verfügen nicht über die notwendigen Berechtigungen!"
-        );
+        let err = new Error("Sie verfügen nicht über die notwendigen Berechtigungen!");
         err.status = 401;
         next(err);
       }
@@ -147,22 +161,11 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
     try {
       const row = await sql.auth_createUser(req.body.username);
       if (row) {
-        req.flash(
-          "errorMessage",
-          "Es existiert bereits ein Benutzer mit diesem Namen!"
-        );
+        req.flash("errorMessage", "Es existiert bereits ein Benutzer mit diesem Namen!");
         res.redirect("/adm_edit_users");
       } else {
-        const hash = await bcrypt.hash(
-          req.body.password,
-          app_cfg.global.saltRounds
-        );
-        const result = await sql.auth_create_new_user(
-          req.body.username,
-          hash,
-          req.body.permissions,
-          req.body.ip
-        );
+        const hash = await bcrypt.hash(req.body.password, app_cfg.global.saltRounds);
+        const result = await sql.auth_create_new_user(req.body.username, hash, req.body.permissions, req.body.ip);
         if (result) {
           req.flash("successMessage", "Neuer Benutzer wurde angelegt.");
           res.redirect("/adm_edit_users");
@@ -172,7 +175,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
         }
       }
     } catch (error) {
-      console.error(error);
+      logger.log("error", "Fehler beim Erstellen eines neuen Benutzers: " + error);
     }
   };
 
@@ -184,10 +187,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
       } else {
         const result = await sql.auth_deleteUser(req.body.id);
         if (result) {
-          req.flash(
-            "successMessage",
-            "Benutzer '" + req.body.username + "' wurde gelöscht!"
-          );
+          req.flash("successMessage", "Benutzer '" + req.body.username + "' wurde gelöscht!");
           res.redirect("/adm_edit_users");
         } else {
           req.flash("errorMessage", "Da ist etwas schief gegangen...");
@@ -195,7 +195,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
         }
       }
     } catch (error) {
-      console.error(error);
+      logger.log("error", "Fehler beim Löschen eines Benutzers: " + error);
     }
   };
 
@@ -207,33 +207,22 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
       if (req.body.password.length == 0) {
         req.flash("successMessage", "Passwort wurde nicht geändert.");
       } else {
-        const hash = await bcrypt.hash(
-          req.body.password,
-          app_cfg.global.saltRounds
-        );
+        const hash = await bcrypt.hash(req.body.password, app_cfg.global.saltRounds);
         req.flash("successMessage", "Passwort geändert.");
         req.query += "password = '" + hash + "', ";
         req.runquery = true;
       }
 
       if (req.user.id == req.body.modal_id && req.body.permissions != "admin") {
-        req.flash(
-          "errorMessage",
-          "Sie können Ihr Recht als Administrator nicht selbst ändern!"
-        );
+        req.flash("errorMessage", "Sie können Ihr Recht als Administrator nicht selbst ändern!");
       } else {
-        req.query +=
-          "permissions = '" +
-          req.body.permissions +
-          "', ip_address ='" +
-          req.body.ip +
-          "'";
+        req.query += "permissions = '" + req.body.permissions + "', ip_address ='" + req.body.ip + "'";
         req.runquery = true;
       }
 
       if (req.runquery == true) {
         req.query += " WHERE id = " + req.body.modal_id;
-        console.log(req.query);
+        logger.log("debug", "Edit User Query: " + req.query);
         const result = await sql.auth_editUser(req.query);
         if (result) {
           req.flash("successMessage", "Benutzer aktualisiert.");
@@ -248,7 +237,7 @@ module.exports = (app, app_cfg, sql, async, bcrypt, passport, io) => {
         res.redirect("/adm_edit_users");
       }
     } catch (error) {
-      console.error(error);
+      logger.log("error", "Fehler beim Ändern eines Benutzers: " + error);
     }
   };
 

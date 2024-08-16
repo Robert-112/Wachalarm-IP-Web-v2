@@ -715,7 +715,7 @@ function set_clock() {
   let curr_date = d.getDate();
   let curr_month_id = d.getMonth();
   curr_month_id = curr_month_id + 1;
-  let curr_year = d.getFullYear();
+  var curr_year = d.getFullYear();
   let curr_hour = d.getHours();
   let curr_min = d.getMinutes();
   let curr_sek = d.getSeconds();
@@ -735,7 +735,7 @@ function set_clock() {
     curr_sek = '0' + curr_sek;
   };
   let curr_month = d.getMonth();
-  let curr_year = d.getFullYear();
+  var curr_year = d.getFullYear();
   let element_time = curr_hour + ':' + curr_min;
   let element_day = d_names[curr_day] + ', ' + curr_date + '. ' + m_names[curr_month];
   let element_date_time = curr_date + '.' + curr_month_id + '.' + curr_year + ' - ' + element_time + ':' + curr_sek;
