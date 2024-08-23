@@ -172,7 +172,7 @@ module.exports = (db, app_cfg) => {
       try {
         let select_reset_counter;
         let user_id = socket.request.user.id;
-        
+
         let dts = app_cfg.global.default_time_for_standby;
 
         // wenn Wachen-ID 0 ist, dann % für SQL-Abfrage setzen
@@ -185,7 +185,8 @@ module.exports = (db, app_cfg) => {
           select_reset_counter = dts;
         } else {
           // wenn user_id vorhanden ist, dann Abfrage so anpassen, dass höchstmögliche Ablaufzeit verwendet wird
-          select_reset_counter = "(SELECT COALESCE(MAX(opt_resetcounter), " + dts + ") opt_resetcounter FROM waip_user_config WHERE id_user = " + user_id + ")";
+          select_reset_counter =
+            "(SELECT COALESCE(MAX(opt_resetcounter), " + dts + ") opt_resetcounter FROM waip_user_config WHERE id_user = " + user_id + ")";
         }
 
         // Einsätze für die gewählte Wachen-ID abfragen und zudem die Ablaufzeit beachten
@@ -515,7 +516,8 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT '0' room
+          SELECT w.nr_wache room FROM waip_wachen w
+          WHERE w.nr_wache = 0
           UNION ALL
           SELECT w.nr_kreis room FROM waip_wachen w
           LEFT JOIN waip_einsatzmittel em ON em.em_station_name = w.name_wache
@@ -546,7 +548,7 @@ module.exports = (db, app_cfg) => {
     // BUG '-?' in Abfrage könnte falsch sein, ggf. durch '+ ablauf_minuten +' ersetzen
     return new Promise((resolve, reject) => {
       try {
-        const ablauf_str = '-' + ablauf_minuten + ' minutes'
+        const ablauf_str = "-" + ablauf_minuten + " minutes";
         const stmt = db.prepare(`
           SELECT id, uuid, els_einsatz_nummer 
           FROM waip_einsaetze 
@@ -739,7 +741,8 @@ module.exports = (db, app_cfg) => {
         let user_name = socket.request.user.user;
         let user_permissions = socket.request.user.permissions;
         let user_agent = socket.request.headers["user-agent"];
-        let client_ip = socket.handshake.headers["x-real-ip"] || socket.handshake.headers["x-forwarded-for"] || socket.request.connection.remoteAddress;
+        let client_ip =
+          socket.handshake.headers["x-real-ip"] || socket.handshake.headers["x-forwarded-for"] || socket.request.connection.remoteAddress;
         let reset_timestamp = socket.request.user.reset_counter;
         // Standby wenn Client-Status keine Nummer oder Null
         if (isNaN(client_status) || client_status == null) {
@@ -764,7 +767,7 @@ module.exports = (db, app_cfg) => {
         let roomKeys = Object.keys(socket.rooms);
         if (roomKeys.length > 1) {
           socket_raum = roomKeys[1]; // Zweiter Schlüssel
-        }         
+        }
         const stmt = db.prepare(`
           INSERT OR REPLACE INTO waip_clients (
             id, 
@@ -1007,7 +1010,7 @@ module.exports = (db, app_cfg) => {
         `);
         let row = stmt.get(user_id);
         if (row === undefined) {
-          throw ("Keine Benutzer-Einstellungen für " + user_id + " gefunden!");
+          throw "Keine Benutzer-Einstellungen für " + user_id + " gefunden!";
         } else {
           resolve(row);
         }
@@ -1036,8 +1039,8 @@ module.exports = (db, app_cfg) => {
     });
   };
 
-  // Benutzer-Berechtigung ueberpruefen
-  const db_user_check_permission = (user_obj, waip_id) => {
+  // Benutzer-Berechtigung für einen Einsatz überpruefen
+  const db_user_check_permission_by_waip_id = (user_obj, waip_id) => {
     return new Promise((resolve, reject) => {
       try {
         // wenn user_obj und permissions nicht übergeben wurden, dann false
@@ -1070,7 +1073,50 @@ module.exports = (db, app_cfg) => {
           }
         }
       } catch (error) {
-        reject(new Error("Fehler beim Überprüfen der Berechtigungen eines Benutzers. " + user_obj + waip_id + error));
+        reject(new Error("Fehler beim Überprüfen der Berechtigungen eines Benutzers für einen Einsatz. " + user_obj + waip_id + error));
+      }
+    });
+  };
+
+  // Benutzer-Berechtigung für eine Wache überpruefen
+  const db_user_check_permission_by_wachen_id = (socket, wachen_id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // User-ID und Berechtigung aus Socket ermitteln
+        const user_id = socket.request.user && socket.request.user.id ? socket.request.user.id : null;
+        const permissions = socket.request.user && socket.request.user.permissions ? socket.request.user.permissions : null;
+
+        // wenn keine user_id oder permissions übergeben wurden, dann false
+        if (!user_id || !permissions) {
+          resolve(false);
+        }
+
+        // wenn admin, dann true, ansonsten Berechtigung abfragen
+        if (permissions == "admin") {
+          resolve(true);
+        } else {
+          // Berechtigungen aus DB abfragen -> 52,62,6690,....
+          const stmt = db.prepare(`
+            SELECT permissions FROM waip_users
+            WHERE id = ?;
+          `);
+          let row = stmt.get(user_id);
+          // wenn keine Berechtigung hinterlegt, dann false
+          if (row === undefined) {
+            resolve(false);
+          } else {
+            // Berechtigungen mit Wache vergleichen, wenn gefunden, dann true, sonst false
+            let permission_arr = row.permissions.split(",");
+            const found = permission_arr.some((r) => wachen_id.search(RegExp("," + r + "|\\b" + r)) >= 0);
+            if (found) {
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          }
+        }
+      } catch (error) {
+        reject(new Error("Fehler beim Überprüfen der Berechtigungen eines Benutzers für eine Wache. " + user_obj + waip_id + error));
       }
     });
   };
@@ -1473,7 +1519,8 @@ module.exports = (db, app_cfg) => {
     db_user_set_config: db_user_set_config,
     db_user_get_config: db_user_get_config,
     db_user_get_all: db_user_get_all,
-    db_user_check_permission: db_user_check_permission,
+    db_user_check_permission_by_waip_id: db_user_check_permission_by_waip_id,
+    db_user_check_permission_by_wachen_id: db_user_check_permission_by_wachen_id,
     db_rmld_save: db_rmld_save,
     db_rmld_get_fuer_wache: db_rmld_get_fuer_wache,
     db_rmld_get_by_rmlduuid: db_rmld_get_by_rmlduuid,

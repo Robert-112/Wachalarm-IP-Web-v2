@@ -13,24 +13,17 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
         logger.db_log("waip", `Neuen Einsatz mit der ID ${waip_id} gespeichert.`);
 
         // nach dem Speichern anhand der waip_id die beteiligten Wachennummern / Socket-Räume zum Einsatz ermitteln
-        const waip_raeume = await sql.db_einsatz_get_rooms(waip_id);
+        const socket_rooms = await sql.db_einsatz_get_rooms(waip_id);
 
         // waip_rooms muss größer 1 sein, da sonst nur der Standard-Raum '0' vorhanden ist
-        if (waip_raeume.length > 1) {
-          waip_raeume.forEach(async (waip_raum) => {
-            // fuer jeden Websocket-Raum (z.B. Wache oder Träger) die verbundenen Sockets(Clients) ermitteln  
-            const sockets = await io.of("/waip").in(waip_raum).fetchSockets();          
-            sockets.forEach((socket) => {
-              // Einsatzdaten an Client senden
-              waip_verteilen(waip_id, socket, waip_raum);
-              logger.db_log("waip", `Einsatz ${waip_id} wird an ${socket.id} (${waip_raum}) gesendet.`);
-            });
-          });
-        } else {
+        if (socket_rooms.length == 1 && socket_rooms[0].room == "0") {
           // wenn kein Raum (keine Wache) ausser '0' zurueckgeliefert wird, dann Einsatz direkt wieder loeschen weil keine Wachen dazu hinterlegt
           logger.log("warn", `Keine Wache für den Einsatz mit der ID ${waip_id} vorhanden! Einsatz wird gelöscht!`);
           // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
           sql.db_einsatz_loeschen(waip_id);
+        } else {
+          // Einsatzdaten an alle beteiligten Wachen verteilen
+          waip_verteilen_for_rooms(waip_id, socket_rooms);
         }
       } catch (error) {
         reject(new Error("Fehler beim Speichern der Waip-Einsatzdaten. " + error));
@@ -38,13 +31,51 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     });
   };
 
+  const waip_verteilen_for_one_client = (waip_id, socket_id) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+      } catch (error) {
+        reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} für einen Client ${socket_id}. ` + error));
+      }
+    });
+  };
+
+  const waip_verteilen_for_rooms = (waip_id, wachen_nrn) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Einsatzdaten an alle beteiligten Wachen (Websocket-Raum) verteilen
+        wachen_nrn.forEach(async (wachen_nr) => {
+          // Einsatzdaten passend pro Wache aus Datenbank laden
+          const einsatzdaten = await sql.db_einsatz_get_for_wache(waip_id, wachen_nr);
+
+          if (!einsatzdaten) {
+            // wenn keine Einsatzdaten vorhanden sind, dann nichts senden (Standby)
+            logger.db_log("waip", `Kein Einsatz passender ${wachen_nr} vorhanden, sende keine Einsatzdaten (bleibt im Standby).`);
+          } else {
+            // alle Einsatzdaten an geschützten Raum senden
+            io.to(wachen_nr).emit("io.new_waip", einsatzdaten);
+            logger.db_log("waip", `Gesamten Einsatz ${waip_id} an Raum/Wache ${wachen_nr} gesendet.`);
+
+            // Daten reduzieren und an öffentlichen Raum senden
+            einsatzdaten.objekt = "";
+            einsatzdaten.besonderheiten = "";
+            einsatzdaten.strasse = "";
+            einsatzdaten.wgs84_x = "";
+            einsatzdaten.wgs84_y = "";
+            io.to(wachen_nr + ".public").emit("io.new_waip", einsatzdaten);
+            logger.db_log("waip", `Reduzierten Einsatz ${waip_id} an Raum/Wache ${wachen_nr}.public gesendet.`);
+          }
+        });
+      } catch (error) {
+        reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} an Räume/Wachen ${socket_rooms}. ` + error));
+      }
+    });
+  };
+
   const waip_verteilen = (waip_id, socket, wachen_nr) => {
     return new Promise(async (resolve, reject) => {
       try {
-        // Einsatzdaten für eine Wache aus Datenbank laden und an Client verteilen
         let user_obj = socket.request.user;
-
-        const einsatzdaten = await sql.db_einsatz_get_by_waipid(waip_id, wachen_nr, user_obj.id);
 
         if (!einsatzdaten) {
           // wenn keine Einsatzdaten, dann Standby senden
@@ -53,7 +84,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
           logger.db_log("waip", `Kein Einsatz für Wache ${wachen_nr} vorhanden, Standby an Socket ${socket.id} gesendet.`);
         } else {
           // Berechtigung des Users ueberpruefen
-          const valid = await sql.db_user_check_permission(user_obj, waip_id);
+          const valid = await sql.db_user_check_permission_by_waip_id(user_obj, waip_id);
 
           // Wenn nutzer nicht angemeldet, Daten entfernen
           if (!valid) {
@@ -73,7 +104,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
 
             // Protokollieren
             logger.db_log("waip", `Einsatz ${waip_id} für Wache ${wachen_nr} an Socket ${socket.id} gesendet.`);
-        
+
             sql.db_client_update_status(socket, waip_id);
 
             // Sound erstellen
@@ -85,7 +116,10 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
             }
           } else {
             // Log das Einsatz explizit nicht an Client gesendet wurde
-            logger.db_log("waip", `Einsatz ${waip_id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, da bereits angezeigt (Doppelalarmierung).`);
+            logger.db_log(
+              "waip",
+              `Einsatz ${waip_id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, da bereits angezeigt (Doppelalarmierung).`
+            );
           }
         }
       } catch (error) {
@@ -193,7 +227,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
           sql.db_log("DBRD", logMessage);
           sql.db_client_update_status(socket, null);
         } else {
-          const valid = await sql.db_user_check_permission(socket.request.user, einsatzdaten.id);
+          const valid = await sql.db_user_check_permission_by_waip_id(socket.request.user, einsatzdaten.id);
           // Daten entfernen wenn kann authentifizierter Nutzer
           if (!valid) {
             delete einsatzdaten.objekt;
@@ -539,7 +573,10 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
                         }
                       });
                     } else {
-                      sql.db_log("EXPORT", "Fehler beim versenden der Export-Mail an " + export_data.export_recipient + " - keine richtige Mail-Adresse!");
+                      sql.db_log(
+                        "EXPORT",
+                        "Fehler beim versenden der Export-Mail an " + export_data.export_recipient + " - keine richtige Mail-Adresse!"
+                      );
                     }
                   }
                 } catch (err) {
@@ -586,7 +623,8 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
 
   return {
     waip_speichern: waip_speichern,
-    waip_verteilen: waip_verteilen,
+    waip_verteilen_for_socket: waip_verteilen_for_socket,
+    waip_verteilen_for_room: waip_verteilen_for_room,
     rmld_verteilen_for_one_client: rmld_verteilen_for_one_client,
     rmld_verteilen_by_uuid: rmld_verteilen_by_uuid,
     dbrd_verteilen: dbrd_verteilen,
