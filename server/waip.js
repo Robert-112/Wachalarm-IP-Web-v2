@@ -5,11 +5,11 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
   const nodemailer = require("nodemailer");
   let proc = require("child_process");
 
-  const waip_speichern = (einsatz_daten) => {
+  const waip_speichern = (einsatzdaten) => {
     return new Promise(async (resolve, reject) => {
       try {
         // Roh-Einsatzdaten  in Datenbank speichern und ID des Einsatzes zurückbekommen
-        const waip_id = await sql.db_einsatz_speichern(einsatz_daten);
+        const waip_id = await sql.db_einsatz_speichern(einsatzdaten);
         logger.db_log("waip", `Neuen Einsatz mit der ID ${waip_id} gespeichert.`);
 
         // nach dem Speichern anhand der waip_id die beteiligten Wachennummern / Socket-Räume zum Einsatz ermitteln
@@ -31,11 +31,63 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     });
   };
 
-  const waip_verteilen_for_one_client = (waip_id, socket_id) => {
+  const waip_verteilen_for_one_client = (einsatzdaten, socket, wachen_nr) => {
     return new Promise(async (resolve, reject) => {
       try {
+        // Prüfen ob der Client im Standby sein sollte
+        const ablaufzeit = await sql.db_user_get_time_left(socket, einsatzdaten.id);
+
+        if (!ablaufzeit) {
+          // wenn keine Ablaufzeit oder keine Einsatzdaten vorhanden sind, dann Standby senden
+          standby_verteilen_for_one_client(socket);
+          logger.log("log", `Kein anzuzeigender Einsatz für Socket ${socket.id} (Zeit abgelaufen), sende Standby.`);
+          resolve(false);
+        } else {
+          // Berechtigungen für aufgerufenen Alarmmonitor überpruefen
+          const permissions = await sql.db_user_check_permission_by_wachen_nr(socket, wachen_nr);
+
+          // wenn Berechtigungen nicht passen / nicht vorhanden sind, dann Daten entfernen
+          if (!permissions) {
+            einsatzdaten.objekt = "";
+            einsatzdaten.besonderheiten = "";
+            einsatzdaten.strasse = "";
+            einsatzdaten.wgs84_x = "";
+            einsatzdaten.wgs84_y = "";
+          }
+
+          // Ablaufzeit zum Einsatz hinzufuegen
+          einsatzdaten.ablaufzeit = ablaufzeit;
+
+          // pruefen ob Einsatz bereits genau so beim Client angezeigt wurde (Doppelalarmierung)
+          const doppelalarm = await sql.db_einsatz_check_history(einsatzdaten, socket);
+
+          if (doppelalarm) {
+            // Log das Einsatz explizit nicht an Client gesendet wurde
+            logger.db_log("waip", `Einsatz ${einsatzdaten.id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, Doppelalarmierung.`);
+            resolve(false);
+          } else {
+            // Einsatzdaten an Client senden
+            socket.emit("io.new_waip", einsatzdaten);
+            logger.db_log("waip", `Einsatz ${einsatzdaten.id} für Wache ${wachen_nr} an ${socket.id} gesendet.`);
+            // Client-Status mit Wachennummer aktualisieren
+            sql.db_client_update_status(socket, einsatzdaten.id);
+
+            // vorhandene Rückmeldungen an Alarmmonitor senden
+            //rmld_verteilen_for_one_client(einsatzdaten, socket, wachen_nr);
+
+            // Sound erstellen
+            const tts = await tts_erstellen(app_cfg, einsatzdaten);
+            if (tts) {
+              // Sound-Link senden
+              socket.emit("io.playtts", tts);
+              logger.log("log", `ttsfile ${tts}`);
+            }
+
+            resolve(true);
+          }
+        }
       } catch (error) {
-        reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} für einen Client ${socket_id}. ` + error));
+        logger.log("error", `Fehler beim Verteilen der Waip-Einsatzdaten ${einsatzdaten.id} für einen Client ${socket.id}. ` + error);
       }
     });
   };
@@ -44,86 +96,46 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     return new Promise(async (resolve, reject) => {
       try {
         // Einsatzdaten an alle beteiligten Wachen (Websocket-Raum) verteilen
-        wachen_nrn.forEach(async (wachen_nr) => {
+        wachen_nrn.forEach(async (room) => {
+          wachen_nr = room.room;
+
           // Einsatzdaten passend pro Wache aus Datenbank laden
           const einsatzdaten = await sql.db_einsatz_get_for_wache(waip_id, wachen_nr);
 
-          if (!einsatzdaten) {
-            // wenn keine Einsatzdaten vorhanden sind, dann nichts senden (Standby)
-            logger.db_log("waip", `Kein Einsatz passender ${wachen_nr} vorhanden, sende keine Einsatzdaten (bleibt im Standby).`);
-          } else {
-            // alle Einsatzdaten an geschützten Raum senden
-            io.to(wachen_nr).emit("io.new_waip", einsatzdaten);
-            logger.db_log("waip", `Gesamten Einsatz ${waip_id} an Raum/Wache ${wachen_nr} gesendet.`);
+          // alles Sockets der Wache ermitteln
+          const sockets = await io.of("/waip").in(wachen_nr).fetchSockets();
 
-            // Daten reduzieren und an öffentlichen Raum senden
-            einsatzdaten.objekt = "";
-            einsatzdaten.besonderheiten = "";
-            einsatzdaten.strasse = "";
-            einsatzdaten.wgs84_x = "";
-            einsatzdaten.wgs84_y = "";
-            io.to(wachen_nr + ".public").emit("io.new_waip", einsatzdaten);
-            logger.db_log("waip", `Reduzierten Einsatz ${waip_id} an Raum/Wache ${wachen_nr}.public gesendet.`);
+          // an jeden Socket entsprechende Daten senden
+          for (const socket of sockets) {
+            if (!einsatzdaten) {
+              // Standby senden
+              standby_verteilen_for_one_client(socket);
+              // wenn keine Einsatzdaten vorhanden sind, dann nichts senden (Standby)
+              logger.db_log("waip", `Kein Einsatz passender ${wachen_nr} vorhanden, sende keine Einsatzdaten, sondern Standby.`);
+              resolve(false);
+            } else {
+              // Einsatz an den einzelnen Socket versenden
+              waip_verteilen_for_one_client(einsatzdaten, socket, wachen_nr);
+              resolve(true);
+            }
           }
         });
       } catch (error) {
-        reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} an Räume/Wachen ${socket_rooms}. ` + error));
+        reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} an Wachen ${socket_rooms}. ` + error));
       }
     });
   };
 
-  const waip_verteilen = (waip_id, socket, wachen_nr) => {
+  const standby_verteilen_for_one_client = (socket) => {
     return new Promise(async (resolve, reject) => {
       try {
-        let user_obj = socket.request.user;
+        // Standby senden
+        socket.emit("io.standby", null);
 
-        if (!einsatzdaten) {
-          // wenn keine Einsatzdaten, dann Standby senden
-          socket.emit("io.standby", null);
-          sql.db_client_update_status(socket, null);
-          logger.db_log("waip", `Kein Einsatz für Wache ${wachen_nr} vorhanden, Standby an Socket ${socket.id} gesendet.`);
-        } else {
-          // Berechtigung des Users ueberpruefen
-          const valid = await sql.db_user_check_permission_by_waip_id(user_obj, waip_id);
-
-          // Wenn nutzer nicht angemeldet, Daten entfernen
-          if (!valid) {
-            einsatzdaten.objekt = "";
-            einsatzdaten.besonderheiten = "";
-            einsatzdaten.strasse = "";
-            einsatzdaten.wgs84_x = "";
-            einsatzdaten.wgs84_y = "";
-          }
-
-          // pruefen ob Einsatz bereits genau so beim Client angezeigt wurde (Doppelalarmierung)
-          const result = await sql.db_einsatz_check_history(waip_id, einsatzdaten, socket.id);
-
-          if (!result) {
-            // Einsatz an Client senden
-            socket.emit("io.new_waip", einsatzdaten);
-
-            // Protokollieren
-            logger.db_log("waip", `Einsatz ${waip_id} für Wache ${wachen_nr} an Socket ${socket.id} gesendet.`);
-
-            sql.db_client_update_status(socket, waip_id);
-
-            // Sound erstellen
-            const tts = await tts_erstellen(app_cfg, socket.id, einsatzdaten);
-            if (tts) {
-              // Sound-Link senden
-              socket.emit("io.playtts", tts);
-              logger.log("log", `ttsfile ${tts}`);
-            }
-          } else {
-            // Log das Einsatz explizit nicht an Client gesendet wurde
-            logger.db_log(
-              "waip",
-              `Einsatz ${waip_id} für Wache ${wachen_nr} nicht an Socket ${socket.id} gesendet, da bereits angezeigt (Doppelalarmierung).`
-            );
-          }
-        }
+        // Client-Status mit Standby aktualisieren
+        sql.db_client_update_status(socket, "Standby");
       } catch (error) {
-        reject(new Error("Fehler beim Verteilen der Waip-Einsatzdaten. " + error));
+        reject(new Error(`Fehler senden des Standby-Befehls für einen Client ${socket.id}. ` + error));
       }
     });
   };
@@ -203,13 +215,17 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
             sql.db_log("RMLD", logMessage);
             const logMessage2 = `Rückmeldung JSON: ${JSON.stringify(rmld_obj)}`;
             sql.db_log("DEBUG", logMessage2);
+            resolve(true);
           } else {
             const logMessage = `Keine Rückmeldungen für Einsatz-ID ${waip_id} und Wachen-ID ${wachen_id} vorhanden.`;
             sql.db_log("RMLD", logMessage);
+            resolve(false);
           }
+        } else {
+          logger.log("error", `Es wurde keine socket.id an die Funktion übergeben! `);
         }
       } catch (error) {
-        reject(new Error("Fehler beim Verteilen der Rückmeldungen für einen Client. " + error));
+        reject(new Error("Fehler beim Verteilen der Rückmeldungen für einen Client. ", error));
       }
     });
   };
@@ -244,6 +260,9 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
           sql.db_log("DBRD", logMessage);
           sql.db_client_update_status(socket, einsatzdaten.id);
         }
+
+        // Client-Status mit Wachennummer aktualisieren
+        sql.db_client_update_status(socket, dbrd_uuid.uuid);
       } catch (error) {
         reject(new Error("Fehler beim Verteilen der Rückmeldungen für einen Client. " + error));
       }
@@ -252,16 +271,24 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
 
   // TODO WAIP: Funktion um Clients remote "neuzustarten" (Seite neu laden), niedrige Prioritaet
 
-  const tts_erstellen = (app_cfg, socket_id, einsatzdaten) => {
+  const tts_erstellen = (app_cfg, einsatzdaten) => {
     return new Promise((resolve, reject) => {
       try {
-        // unnoetige Zeichen aus socket_id entfernen, um diese als Dateinamen zu verwenden
-        let id = socket_id.replace(/\W/g, "");
-        // Pfade der Sound-Dateien defeinieren
+        // Einsatz-UUID als Dateinamen verwenden und unnötige Zeichen aus entfernen
+        let id = einsatzdaten.uuid.replace(/\W/g, "");
+
+        // Pfade der Sound-Dateien definieren
         let wav_tts = process.cwd() + app_cfg.global.soundpath + id + ".wav";
         let mp3_tmp = process.cwd() + app_cfg.global.soundpath + id + "_tmp.mp3";
         let mp3_tts = process.cwd() + app_cfg.global.soundpath + id + ".mp3";
         let mp3_url = app_cfg.global.mediapath + id + ".mp3";
+
+        // prüfen ob mp3_url bereits existiert, wenn ja dann direkt zurückgeben und Funktion beenden
+        if (fs.existsSync(mp3_tts)) {
+          resolve(mp3_url);
+          return;
+        }
+
         // unterscheiden des Alarmgongs nach Einsatzart
         let mp3_bell;
         if (einsatzdaten.einsatzart == "Brandeinsatz" || einsatzdaten.einsatzart == "Hilfeleistungseinsatz") {
@@ -269,137 +296,115 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
         } else {
           mp3_bell = process.cwd() + app_cfg.global.soundpath + "bell_short.mp3";
         }
-        // Zusammensetzen der Sprachansage
-        // TODO db_tts_einsatzmittel -> Resolve bringt nur noch ein Argument!
-        async.map(JSON.parse(einsatzdaten.em_alarmiert), sql.db_tts_einsatzmittel, (err, einsatzmittel) => {
-          // Grunddaten
-          let tts_text = einsatzdaten.einsatzart + ", " + einsatzdaten.stichwort;
-          if (einsatzdaten.objekt) {
-            tts_text = tts_text + ". " + einsatzdaten.objekt + ", " + einsatzdaten.ort + ", " + einsatzdaten.ortsteil;
-          } else {
-            tts_text = tts_text + ". " + einsatzdaten.ort + ", " + einsatzdaten.ortsteil;
-          }
-          // Einsatzmittel
-          tts_text = tts_text + ". Für " + einsatzmittel.join(", ");
-          // Unterscheidung nach Sondersignal
-          if (einsatzdaten.sondersignal == 1) {
-            tts_text = tts_text + ", mit Sondersignal";
-          } else {
-            tts_text = tts_text + ", ohne Sonderrechte";
-          }
-          // Abschluss
-          tts_text = tts_text + ". Ende der Durchsage!";
-          // ungewollte zeichen aus Sprachansage entfernen
-          tts_text = tts_text.replace(/:/g, " ");
-          tts_text = tts_text.replace(/\//g, " ");
-          tts_text = tts_text.replace(/-/g, " ");
-          // Sprachansage als mp3 erstellen
-          switch (process.platform) {
-            // Windows
-            case "win32":
-              // Powershell
-              let pwshell_commands = [
-                // TTS-Schnittstelle von Windows ansprechen
-                "Add-Type -AssemblyName System.speech;" +
-                  "$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer;" +
-                  // Ausgabedatei und Sprachtext
-                  '$speak.SetOutputToWaveFile("' +
-                  wav_tts +
-                  '");' +
-                  '$speak.Speak("' +
-                  tts_text +
-                  '");' +
-                  "$speak.Dispose();" +
-                  // speak.wav in mp3 umwandeln
-                  "ffmpeg -nostats -hide_banner -loglevel 0 -y -i " +
-                  wav_tts +
-                  " -vn -ar 44100 -ac 2 -ab 128k -f mp3 " +
-                  mp3_tmp +
-                  ";" +
-                  // Gong und Ansage zu einer mp3 zusammensetzen
-                  'ffmpeg -nostats -hide_banner -loglevel 0 -y -i "concat:' +
-                  mp3_bell +
-                  "|" +
-                  mp3_tmp +
-                  '" -acodec copy ' +
-                  mp3_tts +
-                  ";" +
-                  "rm " +
-                  wav_tts +
-                  ";" +
-                  "rm " +
-                  mp3_tmp +
-                  ";",
-              ];
-              let pwshell_options = {
-                shell: true,
-              };
-              let pwshell_childD = proc.spawn("powershell", pwshell_commands);
-              pwshell_childD.stdin.setEncoding("ascii");
-              pwshell_childD.stderr.setEncoding("ascii");
-              pwshell_childD.stderr.on("data", (data) => {
-                sql.db_log("Fehler-TTS", data);
-                reject(new Error("Fehler beim Erstellen der TTS-Datei", data));
-              });
-              pwshell_childD.on("exit", () => {
-                resolve(mp3_url);
-              });
-              pwshell_childD.stdin.end();
-              break;
-            // LINUX
-            case "linux":
-              // bash
-              let lxshell_commands = [
-                // TTS-Schnittstelle SVOX PicoTTS
-                "-c",
-                `
-                pico2wave --lang=de-DE --wave=` +
-                  wav_tts +
-                  ` \"` +
-                  tts_text +
-                  `\"
-                ffmpeg -nostats -hide_banner -loglevel 0 -y -i ` +
-                  wav_tts +
-                  ` -vn -ar 44100 -ac 2 -ab 128k -f mp3 ` +
-                  mp3_tmp +
-                  `
-                ffmpeg -nostats -hide_banner -loglevel 0 -y -i \"concat:` +
-                  mp3_bell +
-                  `|` +
-                  mp3_tmp +
-                  `\" -acodec copy ` +
-                  mp3_tts +
-                  `
-                rm ` +
-                  wav_tts +
-                  `
-                rm ` +
-                  mp3_tmp,
-              ];
-              let lxshell_options = {
-                shell: true,
-              };
-              logger.log("debug", `Erstellung der TTS-Datei: ${commands}`);
-              let lxshell_childD = proc.spawn("/bin/sh", lxshell_commands);
-              lxshell_childD.stdin.setEncoding("ascii");
-              lxshell_childD.stderr.setEncoding("ascii");
-              lxshell_childD.on("exit", (code, signal) => {
-                if (code > 0) {
-                  sql.db_log("Fehler-TTS", "Exit-Code " + code + "; Fehler beim erstellen der TTS-Datei");
-                  reject(new Error("Fehler beim Erstellen der TTS-Datei", code));
-                } else {
-                  resolve(mp3_url);
-                }
-              });
-              lxshell_childD.stdin.end();
-              break;
-            // anderes OS
-            default:
-              reject(new Error("TTS für dieses Server-Betriebssystem nicht verfügbar!"));
-          }
+
+        // Grunddaten der Sprachansage zusammensetzen
+        let tts_text = einsatzdaten.einsatzart + ", " + einsatzdaten.stichwort;
+        if (einsatzdaten.objekt) {
+          tts_text = tts_text + ". " + einsatzdaten.objekt + ", " + einsatzdaten.ort + ", " + einsatzdaten.ortsteil;
+        } else {
+          tts_text = tts_text + ". " + einsatzdaten.ort + ", " + einsatzdaten.ortsteil;
+        }
+
+        // für jedes Einsatzmittel den gesprochenen Funkrufnamen ermitteln
+        einsatzdaten.em_alarmiert.forEach(async (einsatzmittel_obj) => {
+          await sql.db_tts_einsatzmittel(einsatzmittel_obj);
         });
+
+        // Verkette alle Werte von tts_text aus einsatzdaten.em_alarmiert
+        let tts_text_em_alarmiert = einsatzdaten.em_alarmiert.map((em) => em.tts_text).join(", ");
+        tts_text = tts_text + ". Für " + tts_text_em_alarmiert;
+
+        // Unterscheidung nach Sondersignal
+        if (einsatzdaten.sondersignal == 1) {
+          tts_text = tts_text + ", mit Sondersignal";
+        } else {
+          tts_text = tts_text + ", ohne Sonderrechte";
+        }
+
+        // Abschluss
+        tts_text = tts_text + ". Ende der Durchsage!";
+
+        // ungewollte Zeichen aus Sprachansage entfernen
+        tts_text = tts_text.replace(/:/g, " ");
+        tts_text = tts_text.replace(/\//g, " ");
+        tts_text = tts_text.replace(/-/g, " ");
+
+        // Sprachansage als mp3 erstellen
+        switch (process.platform) {
+          // Windows
+          case "win32":
+            // Powershell
+            let pwshell_commands = [
+              // TTS-Schnittstelle von Windows ansprechen
+              `
+              Add-Type -AssemblyName System.speech;
+              $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer;
+              # Ausgabedatei und Sprachtext
+              $speak.SetOutputToWaveFile("${wav_tts}");
+              $speak.Speak("${tts_text}");
+              $speak.Dispose();
+              # speak.wav in mp3 umwandeln
+              ffmpeg -nostats -hide_banner -loglevel 0 -y -i ${wav_tts} -vn -ar 44100 -ac 2 -ab 128k -f mp3 ${mp3_tmp};
+              # Gong und Ansage zu einer mp3 zusammensetzen
+              ffmpeg -nostats -hide_banner -loglevel 0 -y -i "concat:${mp3_bell}|${mp3_tmp}" -acodec copy ${mp3_tts};
+              # Dateien loeschen
+              rm ${wav_tts};
+              rm ${mp3_tmp};
+              `,
+            ];
+            let pwshell_options = {
+              shell: true,
+            };
+            let pwshell_childD = proc.spawn("powershell", pwshell_commands);
+            pwshell_childD.stdin.setEncoding("ascii");
+            pwshell_childD.stderr.setEncoding("ascii");
+            pwshell_childD.stderr.on("data", (data) => {
+              const message = `Fehler beim Erstellen der TTS-Datei (win32): ${data}`;
+              logger.log("error", message);
+              reject(new Error(message));
+            });
+            pwshell_childD.on("exit", () => {
+              resolve(mp3_url);
+            });
+            pwshell_childD.stdin.end();
+            break;
+          // LINUX
+          case "linux":
+            // bash
+            let lxshell_commands = [
+              // TTS-Schnittstelle SVOX PicoTTS
+              "-c",
+              `
+              pico2wave --lang=de-DE --wave=${wav_tts} "${tts_text}"
+              ffmpeg -nostats -hide_banner -loglevel 0 -y -i ${wav_tts} -vn -ar 44100 -ac 2 -ab 128k -f mp3 ${mp3_tmp}
+              ffmpeg -nostats -hide_banner -loglevel 0 -y -i "concat:${mp3_bell}|${mp3_tmp}" -acodec copy ${mp3_tts}
+              rm ${wav_tts}
+              rm ${mp3_tmp}`,
+            ];
+            let lxshell_options = {
+              shell: true,
+            };
+            logger.log("debug", `Erstellung der TTS-Datei: ${lxshell_commands}`);
+            let lxshell_childD = proc.spawn("/bin/sh", lxshell_commands);
+            lxshell_childD.stdin.setEncoding("ascii");
+            lxshell_childD.stderr.setEncoding("ascii");
+            lxshell_childD.on("exit", (code, signal) => {
+              if (code > 0) {
+                const message = `Exit-Code ${code}; Fehler beim erstellen der TTS-Datei (linux).`;
+                logger.log("error", message);
+                reject(new Error(message));
+              } else {
+                resolve(mp3_url);
+              }
+            });
+            lxshell_childD.stdin.end();
+            break;
+          // anderes OS
+          default:
+            reject(new Error("TTS für dieses Server-Betriebssystem nicht verfügbar!"));
+        }
       } catch (error) {
-        reject(new Error("Fehler beim Erstellen der TTS-Datei: " + error));
+        logger.log("error", `Fehler beim Erstellen der TTS-Datei. ` + error);
       }
     });
   };
@@ -623,8 +628,9 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
 
   return {
     waip_speichern: waip_speichern,
-    waip_verteilen_for_socket: waip_verteilen_for_socket,
-    waip_verteilen_for_room: waip_verteilen_for_room,
+    waip_verteilen_for_one_client: waip_verteilen_for_one_client,
+    waip_verteilen_for_rooms: waip_verteilen_for_rooms,
+    standby_verteilen_for_one_client: standby_verteilen_for_one_client,
     rmld_verteilen_for_one_client: rmld_verteilen_for_one_client,
     rmld_verteilen_by_uuid: rmld_verteilen_by_uuid,
     dbrd_verteilen: dbrd_verteilen,

@@ -15,7 +15,7 @@ module.exports = (app_cfg, logger, saver) => {
     try {
       saver.save_new_waip(message.toString("utf8"), remote.address + ":" + remote.port, "udp");
     } catch (error) {
-      logger.log("error", `Fehler beim Speichern eines neuen Einsatzes per UDP von ${address.address}:${address.port}! Error: ${error}`);
+      logger.log("error", `Fehler beim Speichern eines neuen Einsatzes per UDP von ${address.address}:${address.port}!`, error);
     }    
   });
 };

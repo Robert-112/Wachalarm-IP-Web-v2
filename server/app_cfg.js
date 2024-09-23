@@ -11,9 +11,9 @@ app_cfg.global = {
   db_limit_log: 100000, // Limit für Log-Tabelle in der Datenbank
   soundpath: "/public/media/",
   mediapath: "/media/",
-  uuid_namespace: "59cc72ec-4ff5-499d-81e2-ec49c1d01252",
+  custom_namespace: "59cc72ec-4ff5-499d-81e2-ec49c1d01252",
   time_to_delete_waip: 4,
-  default_time_for_standby: 10,
+  default_time_for_standby: 30,
   system_cleanup_time: 10000, // Millisekunden nach denen zyklisch aufgeräumt wird
   circumcircle: 5,
   defaultuser: "me",

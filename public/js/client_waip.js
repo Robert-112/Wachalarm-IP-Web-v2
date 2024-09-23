@@ -444,7 +444,7 @@ socket.on('io.new_waip', function (data) {
   $('#besonderheiten').html(break_text_35(data.besonderheiten));
   // alarmierte Einsatzmittel setzen
   $('#em_alarmiert').empty();
-  let data_em_alarmiert = JSON.parse(data.em_alarmiert);
+  let data_em_alarmiert = data.em_alarmiert;
   for (let i in data_em_alarmiert) {
     let tmp = data_em_alarmiert[i].name.replace(/[^a-z0-9\s]/gi, '').replace(/[_\s]/g, '-');
     $('#em_alarmiert').append('<div id="cn_' + tmp + '" class="rounded bg-secondary d-flex justify-content-between p-2 m-1"></div>');
@@ -481,9 +481,9 @@ socket.on('io.new_waip', function (data) {
     }).addTo(map);
     map.setView(new L.LatLng(data.wgs84_x, data.wgs84_y), 15);
   } else {
-    geojson = L.geoJSON(JSON.parse(data.wgs84_area));
-    geojson.addTo(map);
-    map.fitBounds(geojson.getBounds());
+    //geojson = L.geoJSON(JSON.parse(data.wgs84_area));
+    //geojson.addTo(map);
+    //map.fitBounds(geojson.getBounds());
     map.setZoom(13);
   };
   // Ablaufzeit setzen

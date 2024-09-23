@@ -5,7 +5,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, log
 
   // Startseite
   app.get("/", (req, res) => {
-    res.render("home", {
+    res.render("page_home", {
       public: app_cfg.public,
       title: "Startseite",
       user: req.user,
@@ -382,7 +382,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, log
     res.locals.error = app_cfg.global.development ? err : {};
     // render the error page
     res.status(err.status || 500);
-    res.render("error", {
+    res.render("page_error", {
       public: app_cfg.public,
       user: req.user,
     });

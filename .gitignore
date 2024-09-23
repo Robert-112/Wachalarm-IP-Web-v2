@@ -101,6 +101,10 @@ public/media/*
 *.save
 
 # backup-files
+public_old/*
+public_new/*
+views_old/*
+views_new/*
 misc/*
 !misc/server.cert
 !misc/server.key
