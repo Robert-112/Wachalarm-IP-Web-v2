@@ -1,14 +1,4 @@
-module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
-  // Socket-IO Client
-  const io_api = require("socket.io-client");
-
-  // Remote-Api aktivieren
-  let remote_api;
-  if (app_cfg.endpoint.enabled) {
-    remote_api = io_api.connect(app_cfg.endpoint.host, {
-      reconnect: true,
-    });
-  }
+module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
 
   // Module laden
   const turf = require("@turf/turf");
@@ -17,7 +7,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
   let uuid_pattern = new RegExp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "i");
 
   // Speichern eines neuen Einsatzes
-  const save_new_waip = (waip_data, remote_addr, app_id) => {
+  const save_new_einsatz = (waip_data, remote_addr, app_id) => {
     return new Promise(async (resolve, reject) => {
       try {
         let waip_json = await validate_waip(waip_data);
@@ -42,7 +32,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
             waip_json.ortsdaten.wgs84_area = new_buffer;
           }
           // pruefen, ob vielleicht schon ein Einsatz mit einer UUID gespeichert ist
-          let waip_uuid = await sql.db_einsatz_get_uuid_by_enr(waip_json.einsatzdaten.nummer);
+          let waip_uuid = await sql.db_einsatz_get_uuid_by_enr(waip_json.einsatzdaten.einsatznummer);
           if (waip_uuid) {
             // wenn ein Einsatz mit UUID schon vorhanden ist, dann diese setzten / ueberschreiben
             waip_json.einsatzdaten.uuid = waip_uuid;
@@ -55,12 +45,10 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
           // nicht erwuenschte Daten ggf. entfernen (Datenschutzoption)
           let data_filtered = await filter_api_data(waip_json, remote_addr);
 
+          // Einsatz speichern
           waip.waip_speichern(data_filtered);
           logger.log("log", `Neuer Einsatz von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(data_filtered)}`);
 
-          // Einsatzdaten per API weiterleiten (entweder zum Server oder zum verbunden Client)
-          api_server_to_client_new_waip(waip_json, app_id);
-          api_client_to_server_new_waip(waip_json, app_id);
           // true zurückgeben
           resolve(true);
         } else {
@@ -68,7 +56,7 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
           throw new Error("Fehler beim validieren eines Einsatzes. " + waip_data);
         }
       } catch (error) {
-        reject(new Error("Fehler beim speichern eines neuen Einsatzes (WAIP-JSON). " + remote_addr + error));
+        reject(new Error("Fehler beim speichern eines neuen Einsatzes (WAIP-JSON). " + remote_addr + " " + error));
       }
     });
   };
@@ -78,14 +66,13 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
       try {
         let valid = await validate_rmld(rmld_data);
         if (valid) {
-          // Rueckmeldung speichern und verteilen
+          // Rückmeldung speichern und verteilen
           await sql.db_rmld_save(rmld_data);
           logger.log("log", `Rückmeldung von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
 
+          // Rückmeldung verteilen
           waip.rmld_verteilen_by_uuid(rmld_data.waip_uuid, rmld_data.rmld_uuid);
-          // RMLD-Daten per API weiterleiten (entweder zum Server oder zum verbunden Client)
-          api_server_to_client_new_rmld(rmld_data, app_id);
-          api_client_to_server_new_rmld(rmld_data, app_id);
+
           // true zurückgeben
           resolve(true);
         } else {
@@ -98,8 +85,86 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
     });
   };
 
+  const filter_api_data = (data, remote_ip) => {
+    return new Promise((resolve, reject) => {
+      try {
+        if (app_cfg.filter.enabled) {
+          // Filter nur anwenden wenn Einsatzdaten von bestimmten IP-Adressen kommen
+          if (app_cfg.filter.on_message_from.includes(remote_ip)) {
+            let data_filtered = data;
+            // Schleife definieren
+            function loop_done(data_filtered) {
+              resolve(data_filtered);
+            }
+            let itemsProcessed = 0;
+            // nicht gewollte Daten entfernen
+            app_cfg.filter.remove_data.forEach(function (item, index, array) {
+              data_filtered.einsatzdaten[item] = "";
+              data_filtered.ortsdaten[item] = "";
+              // Schleife erhoehen
+              itemsProcessed++;
+              if (itemsProcessed === array.length) {
+                // Schleife beenden
+                loop_done(data_filtered);
+              }
+            });
+          } else {
+            resolve(data);
+          }
+        } else {
+          resolve(data);
+        }
+      } catch (error) {
+        reject(new Error("Fehler beim Filtern der übergebenen Daten. " + error));
+      }
+    });
+  };
+
   const validate_waip = (data) => {
     return new Promise((resolve, reject) => {
+      /* Beispiel eines Einsatzes
+      {
+        "einsatzdaten": {
+          "eisnatznummer": "753",
+          "alarmzeit": "01.01.19&01:00",
+          "art": "Rettungseinsatz",
+          "stichwort": "N4:Trauma",
+          "sondersignal": 1,
+          "besonderheiten": "DEMO Wachalarm-IP-Web - Verkehrsunfall",
+          "einsatzdetails": "Feuerwehrplan 12 A",
+          "uuid": "8ac19295-8efa-4a5e-bb80-227a6e419789"
+        },
+        "ortsdaten": {
+          "ort": "Luckau",
+          "ortsteil": "",
+          "strasse": "Golzener Straße 21",
+          "objekt": "",
+          "objektnr": "-1",
+          "objektart": "",
+          "wachfolge": "611202",
+          "wgs84_x": "51.8556",
+          "wgs84_y": "13.7039"
+        },
+        "alarmdaten": [
+          {
+            "typ": "ALARM",
+            "netzadresse": "",
+            "wachenname": "LDS RW Luckau",
+            "einsatzmittel": "AK LDS 12/82-01",
+            "zeit_alarmierung": "15:47",
+            "zeit_ausgerueckt": ""
+          },
+          {
+            "typ": "ALARM",
+            "netzadresse": "",
+            "wachenname": "LDS RW Luckau",
+            "einsatzmittel": "AK LDS 12/83-02",
+            "zeit_alarmierung": "15:47",
+            "zeit_ausgerueckt": ""
+          }
+        ]
+      }
+      */
       try {
         // false wenn data NULL oder nicht definiert
         if (data === null || data === undefined) {
@@ -150,103 +215,8 @@ module.exports = (app_cfg, sql, waip, uuidv4, io, logger) => {
     });
   };
 
-  const api_server_to_client_new_waip = (data, app_id) => {
-    // Rückmeldung an verbundenen Client senden, falls funktion aktiviert
-    if (app_cfg.api.enabled) {
-      // testen ob app_id auch eine uuid ist, falls nicht, eigene app_uuid setzen
-      if (!uuid_pattern.test(app_id)) {
-        app_id = app_cfg.global.app_id;
-      }
-      io.of("/api").emit("from_server_to_client_new_waip", {
-        data: data,
-        app_id: app_id,
-      });
-      logger.db_log("API", "Einsatz an Clients gesendet: " + JSON.stringify(data));
-    }
-  };
-
-  const api_server_to_client_new_rmld = (data, app_id) => {
-    // Rückmeldung an verbundenen Client senden, falls funktion aktiviert
-    if (app_cfg.api.enabled) {
-      // testen ob app_id auch eine uuid ist, falls nicht, eigene app_uuid setzen
-      if (!uuid_pattern.test(app_id)) {
-        app_id = app_cfg.global.app_id;
-      }
-      io.of("/api").emit("from_server_to_client_new_rmld", {
-        data: data,
-        app_id: app_id,
-      });
-      logger.db_log("API", "Rückmeldung an Clients gesendet: " + JSON.stringify(data));
-    }
-  };
-
-  const api_client_to_server_new_waip = (data, app_id) => {
-    // Alarm an Remote-Server senden, falls funktion aktiviert
-    if (app_cfg.endpoint.enabled) {
-      // testen ob app_id auch eine uuid ist, falls nicht, eigene app_uuid setzen
-      if (!uuid_pattern.test(app_id)) {
-        app_id = app_cfg.global.app_id;
-      }
-      remote_api.emit("from_client_to_server_new_waip", {
-        data: data,
-        app_id: app_id,
-      });
-      logger.db_log("API", "Neuen Einsatz an " + app_cfg.endpoint.host + " gesendet: " + JSON.stringify(data));
-    }
-  };
-
-  const api_client_to_server_new_rmld = (data, app_id) => {
-    // Rückmeldung an Remote-Server senden, falls funktion aktiviert
-    if (app_cfg.endpoint.enabled) {
-      // testen ob app_id auch eine uuid ist, falls nicht, eigene app_uuid setzen
-      if (!uuid_pattern.test(app_id)) {
-        app_id = app_cfg.global.app_id;
-      }
-      remote_api.emit("from_client_to_server_new_rmld", {
-        data: data,
-        app_id: app_id,
-      });
-      logger.db_log("API", "Rückmeldung an " + app_cfg.endpoint.host + " gesendet: " + JSON.stringify(data));
-    }
-  };
-
-  const filter_api_data = (data, remote_ip) => {
-    return new Promise((resolve, reject) => {
-      try {
-        if (app_cfg.filter.enabled) {
-          // Filter nur anwenden wenn Einsatzdaten von bestimmten IP-Adressen kommen
-          if (app_cfg.filter.on_message_from.includes(remote_ip)) {
-            let data_filtered = data;
-            // Schleife definieren
-            function loop_done(data_filtered) {
-              resolve(data_filtered);
-            }
-            let itemsProcessed = 0;
-            // nicht gewollte Daten entfernen
-            app_cfg.filter.remove_data.forEach(function (item, index, array) {
-              data_filtered.einsatzdaten[item] = "";
-              data_filtered.ortsdaten[item] = "";
-              // Schleife erhoehen
-              itemsProcessed++;
-              if (itemsProcessed === array.length) {
-                // Schleife beenden
-                loop_done(data_filtered);
-              }
-            });
-          } else {
-            resolve(data);
-          }
-        } else {
-          resolve(data);
-        }
-      } catch (error) {
-        reject(new Error("Fehler beim Filtern der übergebenen Daten. " + error));
-      }
-    });
-  };
-
   return {
-    save_new_waip: save_new_waip,
+    save_new_einsatz: save_new_einsatz,
     save_new_rmld: save_new_rmld,
   };
 };

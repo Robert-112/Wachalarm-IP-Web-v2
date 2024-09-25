@@ -75,8 +75,8 @@ module.exports = (bcrypt, app_cfg) => {
         em_station_id TEXT,                          -- vorher: waip_wachen_ID INTEGER,
         em_station_nr TEXT,                          -- neu
         em_station_name TEXT,                        -- vorher: wachenname TEXT,
-        em_zeitstempel_alarm DATETIME,               -- vorher: zeitstempel TEXT,
-        em_zeitstempel_ausrueck DATETIME,            -- neu
+        em_zeitstempel_alarmierung DATETIME,         -- vorher: zeitstempel TEXT,
+        em_zeitstempel_ausgerueckt DATETIME,         -- neu
         em_zeitstempel_fms DATETIME,                 -- neu
         em_zeitstempel_wgs DATETIME,                 -- neu
         em_staerke_els TEXT,                         -- vorher: staerke TEXT,
@@ -127,38 +127,27 @@ module.exports = (bcrypt, app_cfg) => {
       );
 
       -- Tabelle für einzelne Rückmeldungen
-      CREATE TABLE IF NOT EXISTS waip_singleresponse (
+      CREATE TABLE IF NOT EXISTS waip_rueckmeldungen (
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
         zeitstempel DATETIME DEFAULT (DATETIME(CURRENT_TIMESTAMP)), --neu
         waip_uuid TEXT,
         rmld_uuid TEXT,
         rmld_alias TEXT,               -- vorher: alias
-        rmld_adress TEXT,              -- neu
-        rmld_oldtype TEXT,             -- vorher: INTEGER einsatzkraft, maschinist, fuehrungskraft
+        rmld_adress TEXT,              -- neu   
+        -- geloescht: INTEGER einsatzkraft, maschinist, fuehrungskraft
         rmld_role TEXT,                -- neu
         rmld_capability_agt INTEGER,   -- vorher: agt
         rmld_capability_ma INTEGER,    -- neu
         rmld_capability_fzf INTEGER,   -- neu
         rmld_capability_med INTEGER,   -- neu
-        rmld_recipients_sum INTEGER,   -- neu
         time_receive DATETIME,         -- neu
-        time_set DATETIME,             -- vorher: set_time
+        type_decision TEXT,            -- neu
+        time_decision DATETIME,        -- vorher: set_time
         time_arrival DATETIME,         -- vorher: arrival_time
         wache_id INTEGER,
         wache_nr INTEGER,
-        wache_name TEXT
-      );
-
-      -- Tabelle für Gesamtanzahl der Rückmeldungen (neu)
-      CREATE TABLE IF NOT EXISTS waip_totalresponse (
-        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-        waip_uuid TEXT,
-        wache_nr INTEGER,
-        wache_group INTEGER,
-        anz_alarmiert INTEGER,
-        anz_zugesagt INTEGER,
-        anz_abgelehnt INTEGER,
-        anz_zugestellt INTEGER
+        wache_name TEXT,
+        group_nr INTEGER               -- neu (Gruppe der Alarmierung)
       );
 
       -- Tabelle für Benutzer
@@ -168,19 +157,25 @@ module.exports = (bcrypt, app_cfg) => {
         password TEXT,
         description TEXT,              -- neu
         permissions TEXT,
-        ip_address TEXT
+        ip_address TEXT,
+        reference TEXT                 -- neu
+      );
+
+      -- Tabelle für Benutzer-Anmeldeinformationen
+      CREATE TABLE IF NOT EXISTS waip_user_credentials  (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,                -- neu
+        external_id TEXT,               -- neu
+        public_key TEXT,              -- neu
+        FOREIGN KEY(id_user) REFERENCES waip_users(id)
       );
 
       -- Tabelle für Einstellungen der Benutzer
       CREATE TABLE IF NOT EXISTS waip_user_config (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        id_user INTEGER,                -- vorher: user_id
-        opt_resetcounter INTEGER,       -- vorher: reset_counter
-        opt_displayoptions TEXT,        -- vorher: display_options
-        opt_soundoptions TEXT,          -- vorher: sound_options
-        opt_iframeurl_1 TEXT,           -- neu
-        opt_iframeurl_2 TEXT,           -- neu
-        opt_iframeurl_3 TEXT,           -- neu
+        user_id INTEGER,
+        config_type TEXT,               -- neu
+        config_value TEXT,              -- neu
         FOREIGN KEY(id_user) REFERENCES waip_users(id)
       );
       
@@ -219,14 +214,24 @@ module.exports = (bcrypt, app_cfg) => {
     db.exec(sqlInit);
 
     // Standard-Admin hinterlegen
-    const hash = bcrypt.hashSync(app_cfg.global.defaultpass, app_cfg.global.saltRounds);
+    const hash_adm = bcrypt.hashSync(app_cfg.global.defaultpass, app_cfg.global.saltRounds);
     const insert_adm = db.prepare(`
       INSERT INTO waip_users ( 
         user, password, permissions, ip_address 
       ) VALUES ( 
         ?, ?, 'admin', ?
       );`);
-    insert_adm.run(app_cfg.global.defaultuser, hash, app_cfg.global.defaultuserip);
+    insert_adm.run(app_cfg.global.defaultuser, hash_adm, app_cfg.global.defaultuserip);
+
+    // Standard-API-User hinterlegen
+    const hash_apiuser = bcrypt.hashSync(app_cfg.global.defaultapipass, app_cfg.global.saltRounds);
+    const insert_apiuser = db.prepare(`
+      INSERT INTO waip_users ( 
+        user, password, permissions, ip_address 
+      ) VALUES ( 
+        ?, ?, 'api', ?
+      );`);
+    insert_apiuser.run(app_cfg.global.defaultapiuser, hash_apiuser, app_cfg.global.defaultuserip);
   } else {
     // alte Clients (Sockets) bei Neustart des Servers entfernen
     const stmt = db.prepare("DELETE FROM waip_clients");

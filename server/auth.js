@@ -6,6 +6,15 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
   const IpStrategy = require("passport-ip").Strategy;
   const sessionStore = new SQLiteStore();
 
+  const jwt = require("jsonwebtoken");
+  const passportJWT = require("passport-jwt");
+  let ExtractJwt = passportJWT.ExtractJwt;
+  let JwtStrategy = passportJWT.Strategy;
+  let jwtOptions = {
+    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+    secretOrKey: "wowwow",
+  };
+
   const sessionMiddleware = session({
     store: sessionStore,
     key: "connect.sid",
@@ -34,7 +43,7 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
       next();
     } else {
       // ohne Login als Gast weiter
-      socket.request.user = { id: null, user: "Gast"};
+      socket.request.user = { id: null, user: "Gast" };
       next();
     }
   });
@@ -48,20 +57,10 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
       next();
     } else {
       // ohne Login als Gast weiter
-      socket.request.user = { id: null, user: "Gast"};
+      socket.request.user = { id: null, user: "Gast" };
       next();
     }
   });
-
-  // Passport Middleware an /api Namespace anhängen
-  io.of("/api").use(wrap(sessionMiddleware));
-  io.of("/api").use(wrap(passport.initialize()));
-  io.of("/api").use(wrap(passport.session()));
-  io.of("/api").use((socket, next) => {
-    // TODO hier noch die Authentifizierung für die API einbauen
-    next();
-  });
-
 
   // Benutzerauthentifizierung per Login
   passport.use(
@@ -70,12 +69,17 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
         usernameField: "user",
       },
       async (user, password, done) => {
+        console.warn("passport", user);
+
         try {
           const row = await sql.auth_localstrategy_cryptpassword(user);
+          console.warn("row", row);
           if (!row) return done(null, false);
           const res = await bcrypt.compare(password, row.password);
+          console.warn("res", res);
           if (!res) return done(null, false);
           const userRow = await sql.auth_localstrategy_userid(user);
+          console.warn("userRow", userRow);
           return done(null, userRow);
         } catch (error) {
           logger.log("error", "Fehler bei der Benutzer-Authentifizierung: " + error);
@@ -105,6 +109,20 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
         }
       }
     )
+  );
+
+  // JWT-Authentifizierung
+  passport.use(
+    new JwtStrategy(jwtOptions, (jwt_payload, done) => {
+      console.log("payload received", jwt_payload);
+      let user = sql.auth_getUser(jwt_payload.id);
+
+      if (user) {
+        return done(null, user);
+      }
+
+      return done(null, false);
+    })
   );
 
   // Funktion die den Benutzer anhand der ID speichert
@@ -140,8 +158,8 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
 
   const ensureAdmin = async (req, res, next) => {
     if (req.isAuthenticated()) {
-      const permissions = await sql.auth_ensureAdmin(req.user.id);
-      if (permissions == "admin") {
+      const is_admin = await sql.auth_ensureAdmin(req.user.id);
+      if (is_admin) {
         // req.user is available for use here
         return next();
       } else {
@@ -155,6 +173,29 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
       err.status = 401;
       next(err);
     }
+  };
+
+  const ensureApi = (user_id) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const api_user = await sql.auth_ensureApi(user_id);
+        if (api_user) {
+          // User wird mit seiner ID identifiziert
+          console.warn("checked-api");
+
+          let payload = { id: user_id };
+          console.warn("payload", payload);
+          // TODO Gültigkeit des API-Token auf eine bestimmte Zeit begrenzen
+          let token = jwt.sign(payload, jwtOptions.secretOrKey /* , expiresIn: "1h" */);
+          resolve(token);
+        } else {
+          resolve(null);
+        }
+      } catch (error) {
+        logger.log("error", "Fehler beim Prüfen der API-Berechtigung für einen User: " + error);
+        resolve(null);
+      }
+    });
   };
 
   const createUser = async (req, res) => {
@@ -244,6 +285,7 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
   return {
     ensureAuthenticated: ensureAuthenticated,
     ensureAdmin: ensureAdmin,
+    ensureApi: ensureApi,
     createUser: createUser,
     deleteUser: deleteUser,
     editUser: editUser,

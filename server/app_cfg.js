@@ -18,6 +18,8 @@ app_cfg.global = {
   circumcircle: 5,
   defaultuser: "me",
   defaultpass: "123",
+  defaultapiuser: "apiuser",
+  defaultapipass: "apiuser123",
   defaultuserip: "127.0.0.1",
   ip_auth_range: ["::ffff:172.16.5.0/24", "::ffff:192.168.2.0/24"],
   saltRounds: 10,
@@ -51,20 +53,6 @@ app_cfg.rmld = {
   mail_from: "xyz@xxx.xxx", //'keineantwort@wachalarm.info.tm'
 };
 
-// Schnittstelle um Daten von anderen Clients zu empfangen
-app_cfg.api = {
-  enabled: true,
-  secret: "asdfwert1234567890#",
-  access_list: ["192.168.2.20", "192.168.2.30", "80.147.87.170"],
-};
-
-// Schnittstelle um Daten an andere Server zu senden
-app_cfg.endpoint = {
-  enabled: false,
-  host: "https://wachalarm.mooo.com/api",
-  secret: "asdfwert1234567890#",
-};
-
 // Schnittstellendaten von bestimmten Clients entfernen (Datenschutzoption)
 app_cfg.filter = {
   enabled: true,
@@ -72,6 +60,7 @@ app_cfg.filter = {
   remove_data: ["besonderheiten", "strasse", "objekt", "objektnr", "wachfolge", "wgs84_x", "wgs84_y"],
 };
 
+// Standardwerte für die Datenbank
 app_cfg.sqlite = {
   startup: `
     INSERT INTO waip_wachen (nr_kreis, nr_traeger, nr_standort, nr_abteilung, nr_wache, kfz_leitstelle, kfz_kreis, name_leitstelle, name_kreis, name_traeger, name_wache, name_beschreibung, wgs84_x, wgs84_y) 

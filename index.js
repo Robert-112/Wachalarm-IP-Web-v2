@@ -52,11 +52,10 @@ let sql_cfg = require("./server/sql_cfg.js")(bcrypt, app_cfg);
 let sql = require("./server/sql_qry.js")(sql_cfg, app_cfg);
 let logger = require("./server/logger.js")(sql, app_cfg);
 let waip = require("./server/waip.js")(io, sql, fs, logger, app_cfg);
-let saver = require("./server/saver.js")(app_cfg, sql, waip, uuidv4, io, logger);
+let saver = require("./server/saver.js")(app_cfg, sql, waip, uuidv4, logger);
 let socket = require("./server/socket.js")(io, sql, app_cfg, logger, waip);
-let udp = require("./server/udp.js")(app_cfg, logger, saver);
 let auth = require("./server/auth.js")(app, app_cfg, sql, bcrypt, passport, io, logger);
-let routes = require("./server/routing.js")(app, sql, uuidv4, app_cfg, passport, auth, saver, logger);
+let routes = require("./server/routing.js")(app, sql, app_cfg, passport, auth, saver, logger);
 
 // Server starten
 webserver.listen(app_cfg.global.https_port, () => {

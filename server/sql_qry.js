@@ -56,7 +56,7 @@ module.exports = (db, app_cfg) => {
       // zunaechst bestehende UUID ermitteln oder neu erzeugen
 
       try {
-        let mission_uuid = await db_get_mission_uuid_by_enr(content.einsatzdaten.nummer);
+        let mission_uuid = await db_get_mission_uuid_by_enr(content.einsatzdaten.einsatznummer);
         if (mission_uuid.uuid) {
           // wenn ein Einsatz mit UUID schon vorhanden ist, dann diese ersetzen / überschreiben
           content.einsatzdaten.uuid = mission_uuid.uuid;
@@ -80,24 +80,25 @@ module.exports = (db, app_cfg) => {
         // Einsatzdaten verarbeiten/speichern
         const stmt = db.prepare(`
           INSERT OR REPLACE INTO waip_einsaetze (
-            id, uuid, els_einsatz_nummer, els_zeitstempel, alarmzeit, einsatzart, stichwort, sondersignal, besonderheiten, 
+            id, uuid, els_einsatz_nummer, els_zeitstempel, alarmzeit, einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
             landkreis, ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges, objekt, objektteil, objektnummer, objektart, 
             wachenfolge, wgs84_x, wgs84_y, geo_h3_index
           ) VALUES (
             (SELECT ID FROM waip_einsaetze WHERE els_einsatz_nummer LIKE ?),
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,? , ?, ?, ?, ?, ?, ?, ?, ?);
         `);
 
         const info = stmt.run(
-          content.einsatzdaten.nummer,
+          content.einsatzdaten.einsatznummer,
           content.einsatzdaten.uuid,
-          content.einsatzdaten.nummer,
+          content.einsatzdaten.einsatznummer,
           Datetime_to_SQLiteDate(content.einsatzdaten.alarmzeit),
           content.einsatzdaten.alarmzeit,
           content.einsatzdaten.art,
           content.einsatzdaten.stichwort,
           content.einsatzdaten.sondersignal,
           content.einsatzdaten.besonderheiten,
+          content.einsatzdaten.einsatzdetails,
           content.ortsdaten.landkreis,
           content.ortsdaten.ort,
           content.ortsdaten.ortsteil,
@@ -139,17 +140,20 @@ module.exports = (db, app_cfg) => {
                 em_station_id, 
                 em_station_name, 
                 em_funkrufname, 
-                em_zeitstempel_alarm
+                em_zeitstempel_alarmierung,
+                em_zeitstempel_ausgerueckt
               ) VALUES (
                 (SELECT ID FROM waip_einsatzmittel WHERE em_funkrufname LIKE ?),
                 ?, 
                 (SELECT ID FROM waip_wachen WHERE name_wache LIKE ?),
                 ?,
                 ?, 
+                ?,
                 ?);
             `);
 
-            stmt.run(item.einsatzmittel, id, item.wachenname, item.wachenname, item.einsatzmittel, Datetime_to_SQLiteDate(item.zeit_a));
+            stmt.run(item.einsatzmittel, id, item.wachenname, item.wachenname, item.einsatzmittel, 
+              Datetime_to_SQLiteDate(item.zeit_alarmierung), Datetime_to_SQLiteDate(item.zeit_ausgerueckt));
 
             // Schleife erhoehen
             itemsProcessed++;
@@ -348,7 +352,7 @@ module.exports = (db, app_cfg) => {
               const stmt1 = db.prepare(`
                 SELECT 
                   em_funkrufname AS 'name',
-                  em_zeitstempel_alarm AS 'zeit'
+                  em_zeitstempel_alarmierung AS 'zeit'
                 FROM waip_einsatzmittel
                 WHERE 
                   em_waip_einsaetze_id = ? 
@@ -361,7 +365,7 @@ module.exports = (db, app_cfg) => {
               const stmt2 = db.prepare(`
                 SELECT 
                   em_funkrufname AS 'name',
-                  em_zeitstempel_alarm AS 'zeit'
+                  em_zeitstempel_alarmierung AS 'zeit'
                 FROM waip_einsatzmittel
                 WHERE 
                   em_waip_einsaetze_id = ? 
@@ -977,14 +981,15 @@ module.exports = (db, app_cfg) => {
         // Benutzer-Einstellungen speichern
         const stmt = db.prepare(`
           INSERT OR REPLACE INTO waip_user_config
-          (id, user_id, reset_counter)
+          (id, user_id, config_type, config_value)
           VALUES (
             (select ID from waip_user_config where user_id like ? ),
             ?,
             ?,
+            ?,
           );
         `);
-        const info = stmt.run(user_id, user_id, reset_counter);
+        const info = stmt.run(user_id, user_id, "resetcounter", reset_counter);
         resolve(info.changes);
       } catch (error) {
         reject(new Error("Fehler beim speichern / aktualisieren von Benutzer-Einstellungen. " + user_id + reset_counter + error));
@@ -997,8 +1002,8 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT opt_resetcounter FROM waip_user_config
-          WHERE id_user = ?;
+          SELECT config_value FROM waip_user_config
+          WHERE id_user = ? AND config_type = 'resetcounter';
         `);
         const row = stmt.get(user_id);
         if (row === undefined) {
@@ -1027,7 +1032,12 @@ module.exports = (db, app_cfg) => {
         if (!user_id) {
           select_reset_counter = dts;
         } else {
-          select_reset_counter = `(SELECT COALESCE(MAX(opt_resetcounter), ${dts}) opt_resetcounter FROM waip_user_config WHERE id_user = ${user_id})`;
+          select_reset_counter = `
+            (
+              SELECT COALESCE(MAX(config_value), ${dts}) config_value FROM waip_user_config 
+              WHERE user_id = ${user_id} AND config_type = 'resetcounter'
+            )
+          `;
         }
 
         // Abfrage zum prüfen, ob die Zeit zur Anzeige des Alarms bereits abgelaufen ist.
@@ -1164,10 +1174,10 @@ module.exports = (db, app_cfg) => {
           reuckmeldung.wache_id = null;
         }
         const stmt = db.prepare(`
-          INSERT OR REPLACE INTO waip_singleresponse
+          INSERT OR REPLACE INTO waip_rueckmeldungen
           (id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_oldtype, rmld_role, rmld_capability_agt, rmld_capability_ma, rmld_capability_fzf, rmld_capability_med, rmld_recipients_sum, time_receive, time_set, time_arrival, wache_id, wache_nr, wache_name)
           VALUES (
-            (SELECT id FROM waip_singleresponse WHERE rmld_uuid = ?),
+            (SELECT id FROM waip_rueckmeldungen WHERE rmld_uuid = ?),
             ?,
             ?,
             ?,
@@ -1220,7 +1230,7 @@ module.exports = (db, app_cfg) => {
       try {
         const stmt = db.prepare(`
           SELECT * 
-          FROM waip_singleresponse 
+          FROM waip_rueckmeldungen 
           WHERE waip_uuid = (SELECT uuid FROM waip_einsaetze WHERE id = ?);
         `);
         const rows = stmt.all(waip_einsaetze_id);
@@ -1242,7 +1252,7 @@ module.exports = (db, app_cfg) => {
       try {
         const stmt = db.prepare(`
           SELECT * 
-          FROM waip_singleresponse 
+          FROM waip_rueckmeldungen 
           WHERE rmld_uuid = ?;
         `);
         const row = stmt.get(rmld_uuid);
@@ -1262,7 +1272,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          DELETE FROM waip_singleresponse WHERE waip_uuid = ?;
+          DELETE FROM waip_rueckmeldungen WHERE waip_uuid = ?;
         `);
         const info = stmt.run(waip_uuid);
         resolve(info.changes);
@@ -1292,7 +1302,7 @@ module.exports = (db, app_cfg) => {
             sr.wache_id, 
             sr.wache_nr, 
             sr.wache_name
-          FROM waip_singleresponse sr 
+          FROM waip_rueckmeldungen sr 
           WHERE sr.waip_uuid = ?;
         `);
         const rows = stmt.all(waip_einsatznummer, waip_uuid);
@@ -1352,7 +1362,7 @@ module.exports = (db, app_cfg) => {
             id, 
             user, 
             permissions,
-            (SELECT opt_resetcounter FROM waip_user_config WHERE id_user = ?) reset_counter
+            (SELECT config_value FROM waip_user_config WHERE user_id = ? AND config_type = 'resetcounter') reset_counter
           FROM waip_users 
           WHERE id = ?;
         `);
@@ -1425,6 +1435,31 @@ module.exports = (db, app_cfg) => {
     });
   };
 
+  // sicherstellen das User Rechte für die API hat
+  const auth_ensureApi = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT permissions FROM waip_users WHERE id = ?;
+        `);
+        const row = stmt.get(id);
+        console.warn("user-api-row", row);
+
+        if (row === undefined) {
+          resolve(false);
+        } else {
+          if (row.permissions == "api") {
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_ensureApi. " + id + error));
+      }
+    });
+  };
+
   // sicherstellen das User Admin-Rechte hat
   const auth_ensureAdmin = (id) => {
     return new Promise((resolve, reject) => {
@@ -1434,9 +1469,13 @@ module.exports = (db, app_cfg) => {
         `);
         const row = stmt.get(id);
         if (row === undefined) {
-          resolve(null);
+          resolve(false);
         } else {
-          resolve(row.permissions);
+          if (row.permissions == "admin") {
+            resolve(true);
+          } else {
+            resolve(false);
+          }
         }
       } catch (error) {
         reject(new Error("Fehler bei auth_ensureAdmin. " + id + error));
@@ -1489,20 +1528,20 @@ module.exports = (db, app_cfg) => {
   };
 
   // einen Nutzer aus der Datebank löschen
-  const auth_deleteUser = (id) => {
+  const auth_deleteUser = (user_id) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-            DELETE FROM waip_users WHERE id = ?;
-          `);
-        const row = stmt.run(id);
+          DELETE FROM waip_users WHERE id = ?;
+        `);
+        const row = stmt.run(user_id);
         if (row === undefined) {
           resolve(null);
         } else {
           resolve(row);
         }
       } catch (error) {
-        reject(new Error("Fehler bei auth_deleteUser. " + id + error));
+        reject(new Error("Fehler bei auth_deleteUser. " + user_id + error));
       }
     });
   };
@@ -1520,6 +1559,25 @@ module.exports = (db, app_cfg) => {
         }
       } catch (error) {
         reject(new Error("Fehler bei auth_editUser. " + id + error));
+      }
+    });
+  };
+
+  // einen Nutzer in der Datenbank anhand seiner ID suchen
+  const auth_getUser = (user_id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          SELECT id, user, description FROM waip_users WHERE id = ?;
+        `);
+        const row = stmt.run(user_id);
+        if (row === undefined) {
+          resolve(null);
+        } else {
+          resolve(row);
+        }
+      } catch (error) {
+        reject(new Error("Fehler bei auth_getUser. " + user_id + error));
       }
     });
   };
@@ -1565,10 +1623,12 @@ module.exports = (db, app_cfg) => {
     auth_ipstrategy: auth_ipstrategy,
     auth_localstrategy_cryptpassword: auth_localstrategy_cryptpassword,
     auth_localstrategy_userid: auth_localstrategy_userid,
+    auth_ensureApi: auth_ensureApi,
     auth_ensureAdmin: auth_ensureAdmin,
     auth_user_dobblecheck: auth_user_dobblecheck,
     auth_create_new_user: auth_create_new_user,
     auth_deleteUser: auth_deleteUser,
     auth_editUser: auth_editUser,
+    auth_getUser: auth_getUser,
   };
 };

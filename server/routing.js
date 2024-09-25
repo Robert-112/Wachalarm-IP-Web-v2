@@ -1,4 +1,16 @@
-module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, logger) {
+module.exports = function (app, sql, app_cfg, passport, auth, saver, logger) {
+
+  // Hilfsfunktion zum prüfen ob der Inhaltstyp JSON ist
+  const checkContentType = (req, res, next) => {
+    if (!req.is("application/json")) {
+      const msg = `Der Inhalt der Anfrage wurde mit ungültigem oder nicht erlaubtem Medientyp übermittelt (${req.originalUrl}).`;
+      res.status(415).send(msg);
+      logger.log("error", msg);
+    } else {
+      next();
+    }
+  };
+
   /* ########################### */
   /* ##### Statische Seiten #### */
   /* ########################### */
@@ -47,11 +59,89 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, log
     }
   });
 
-  // API
+  /* ##################### */
+  /* ######## API ######## */
+  /* ##################### */
+
+  // Aufruf von /api
   app.get("/api", (req, res, next) => {
-    let err = new Error("Sie sind nicht berechtigt diese Seite aufzurufen!");
+    const err = new Error(`Der Aufruf dieser Seite ist nicht gestattet. 
+     Kontaktieren Sie den Betreiber der Seite für weitere Informationen.`);
+    logger.log("error", err);
     err.status = 403;
     next(err);
+  });
+
+  // API-Token abrufen
+  app.post(
+    "/api/get_token",
+    passport.authenticate("local", {
+      //TODO bessere Rückmeldung ohne Umleitung auf Seite
+      failureRedirect: "/api",
+      failureFlash: "Authentifizierung fehlgeschlagen! Bitte prüfen Sie Benutzername und Passwort.",
+      failureMessage: true,
+    }),
+    async (req, res) => {
+      console.warn("post", req.user);
+      const new_token = await auth.ensureApi(req.user.id);
+      if (new_token) {
+        res.json({ message: "Neues Zugangs-Token generiert", token: new_token });
+      } else {
+        res.status(401).json({ msg: "Keine Berechtigung zur Nutzung der Rest-API" });
+      }
+    }
+  );
+
+  // POST von neuen oder aktualisierten Einsätzen
+  app.post("/api/einsatzdaten", passport.authenticate("jwt", { session: false }), checkContentType, async (req, res) => {
+      try {
+        // Client-IP ermitteln
+        const remote_ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+        // Einsatz speichern
+        await saver.save_new_einsatz(req.body, remote_ip, "rest-api");
+        // Protokollieren
+        const msg = "Einsatzdaten erfolgreich übermittelt und verarbeitet (/api/einsatzdaten).";
+        logger.log("log", msg);
+        // OK zurücksenden
+        res.status(200);
+        res.send(msg);
+      } catch (error) {
+        // Fehler Protokollieren und Fehlermeldung senden
+        const msg = "Fehler bei der Datenverarbeitung (/api/einsatzdaten).";
+        logger.log("error", msg + " " + error);
+        res.status(500);
+        res.send(msg);
+      }  
+  });
+
+  // POST von neuen oder aktualisierten Rückmeldungen
+  app.post("/api/rueckmeldung", passport.authenticate("jwt", { session: false }), async (req, res, next) => {
+    try {
+      var remote_ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+      await saver.save_new_rmld(req.body, remote_ip, "rest-api");
+      logger.log("log", "Rückmeldung erfolgreich übermittelt und verarbeitet (/api/rueckmeldung).");
+      res.sendStatus(200);
+    } catch (error) {
+      const err = new Error("Fehler bei der Datenverarbeitung.");
+      logger.log("error", err + " (/api/rueckmeldung) " + error);
+      err.status = 500;
+      next(err);
+    }
+  });
+
+  // POST von neuen oder aktualisierten Statusmeldungen
+  app.post("/api/fahrzeugstatus", passport.authenticate("jwt", { session: false }), async (req, res, next) => {
+    try {
+      var remote_ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+      await saver.save_new_rmld(req.body, remote_ip, app_id, "rest-api");
+      logger.log("log", "Rückmeldung erfolgreich übermittelt und verarbeitet (/api/rueckmeldung).");
+      res.sendStatus(200);
+    } catch (error) {
+      const err = new Error("Fehler bei der Datenverarbeitung.");
+      logger.log("error", err + " (/api/fahrzeugstatus) " + error);
+      err.status = 500;
+      next(err);
+    }
   });
 
   /* ##################### */
@@ -75,7 +165,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, log
     "/login",
     passport.authenticate("local", {
       failureRedirect: "/login",
-      failureFlash: "Login fehlgeschlagen! Bitte prüfen Sie Benutzername und Passwort.",
+      failureFlash: "Authentifizierung fehlgeschlagen! Bitte prüfen Sie Benutzername und Passwort.",
     }),
     (req, res) => {
       if (req.body.rememberme) {
@@ -387,4 +477,7 @@ module.exports = function (app, sql, uuidv4, app_cfg, passport, auth, saver, log
       user: req.user,
     });
   });
+
+
+
 };
