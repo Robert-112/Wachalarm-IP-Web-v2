@@ -80,12 +80,14 @@ module.exports = (db, app_cfg) => {
         // Einsatzdaten verarbeiten/speichern
         const stmt = db.prepare(`
           INSERT OR REPLACE INTO waip_einsaetze (
-            id, uuid, els_einsatz_nummer, els_zeitstempel, alarmzeit, einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
+            id, uuid, ablaufzeit, els_einsatznummer, els_zeitstempel, alarmzeit, einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
             landkreis, ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges, objekt, objektteil, objektnummer, objektart, 
             wachenfolge, wgs84_x, wgs84_y, geo_h3_index
           ) VALUES (
-            (SELECT ID FROM waip_einsaetze WHERE els_einsatz_nummer LIKE ?),
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,? , ?, ?, ?, ?, ?, ?, ?, ?);
+            (SELECT ID FROM waip_einsaetze WHERE els_einsatznummer LIKE ?),
+            ?,
+            DATETIME('now', 'localtime', +${app_cfg.global.time_to_delete_waip} minutes) 
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,? , ?, ?, ?, ?, ?, ?, ?, ?);
         `);
 
         const info = stmt.run(
@@ -152,8 +154,15 @@ module.exports = (db, app_cfg) => {
                 ?);
             `);
 
-            stmt.run(item.einsatzmittel, id, item.wachenname, item.wachenname, item.einsatzmittel, 
-              Datetime_to_SQLiteDate(item.zeit_alarmierung), Datetime_to_SQLiteDate(item.zeit_ausgerueckt));
+            stmt.run(
+              item.einsatzmittel,
+              id,
+              item.wachenname,
+              item.wachenname,
+              item.einsatzmittel,
+              Datetime_to_SQLiteDate(item.zeit_alarmierung),
+              Datetime_to_SQLiteDate(item.zeit_ausgerueckt)
+            );
 
             // Schleife erhoehen
             itemsProcessed++;
@@ -436,7 +445,7 @@ module.exports = (db, app_cfg) => {
         const stmt = db.prepare(`
           SELECT uuid
           FROM waip_einsaetze 
-          WHERE els_einsatz_nummer LIKE ?;
+          WHERE els_einsatznummer LIKE ?;
         `);
         const row = stmt.get(einsatz_nr);
         if (row === undefined) {
@@ -532,15 +541,14 @@ module.exports = (db, app_cfg) => {
   };
 
   // veraltete Einsätze finden
-  const db_einsaetze_get_old = (ablauf_minuten) => {
+  const db_einsaetze_get_old = () => {
     // BUG '-?' in Abfrage könnte falsch sein, ggf. durch '+ ablauf_minuten +' ersetzen
     return new Promise((resolve, reject) => {
       try {
-        const ablauf_str = "-" + ablauf_minuten + " minutes";
         const stmt = db.prepare(`
-          SELECT id, uuid, els_einsatz_nummer 
+          SELECT id, uuid, els_einsatznummer 
           FROM waip_einsaetze 
-          WHERE zeitstempel <= datetime('now', 'localtime', ?);
+          WHERE zeitstempel <= ablaufzeit;
         `);
         const rows = stmt.all(ablauf_str);
         if (rows.length === 0) {
@@ -549,7 +557,41 @@ module.exports = (db, app_cfg) => {
           resolve(rows);
         }
       } catch (error) {
-        reject(new Error("Fehler beim Abfragen der zu löschender Einsätze welche älter als " + ablauf_minuten + " Minuten sind. " + error));
+        reject(new Error("Fehler beim Abfragen der zu löschender Einsätze. " + error));
+      }
+    });
+  };
+
+  // Status eines Einsatzes aktualisieren
+  const db_einsatz_statusupdate = (einsatzstatus_data) => {
+    // wenn keine Einsatznummer WAIP-Uuid gesetzt ist, einen Fehler ausgeben
+    if (!einsatzstatus_data.einsatznummer && !einsatzstatus_data.waip_uuid) {
+      throw "Einsatznummer oder WAIP-Uuid muss gesetzt sein!";
+    }
+
+    let uuid_query;
+    // wenn Einsatznummer aber keiner WAIP-Uuid gesetzt ist, dann Einsatznummer für Abfrage verwenden
+    if (einsatzstatus_data.einsatznummer && !einsatzstatus_data.waip_uuid) {
+      uuid_query = `(SELECT uuid FROM waip_einsaetze WHERE els_einsatznummer = '${einsatzstatus_data.einsatznummer}')`;
+    }
+    // wenn WAIP-Uuid gesetzt ist, dann WAIP-Uuid für Abfrage verwenden
+    if (einsatzstatus_data.waip_uuid) {
+      uuid_query = `'${einsatzstatus_data.waip_uuid}'`;
+    }
+
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          UPDATE waip_einsaetze SET 
+            ablaufzeit = DATETIME('now', 'localtime', +10 minutes)
+          WHERE 
+            waip_uuid LIKE ${uuid_query};
+        `);
+        const info = stmt.run();
+        // Anzahl der aktualisierten Einsätze zurückgeben
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Aktualisieren des Status eines Einsatzes. " + error));
       }
     });
   };
@@ -686,6 +728,140 @@ module.exports = (db, app_cfg) => {
       }
     });
   };
+
+  // Einsatzmittel-Daten speichern
+  const db_einsatzmittel_update = (einsatzmittel_data) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Variablen vorbereiten
+        const itemsProcessed = 0;
+        const arr_funkkenner = [];
+
+        // alle Einsatzmittel per Schliefe in DB in Tabelle waip_einsatzmittel speichern
+        einsatzmittel_data.einsatzmittel.forEach((item, index, array) => {
+          
+          // H3-ID für Ortsdaten erstellen
+          item.geo_h3_index = h3.latLngToCell(item.wgs84_y, item.wgs84_x, h3_res_resource);
+
+          // Bei Status 3 die Zeit für Ausrücken setzen
+          if (item.fms_status == 3) {
+            item.em_zeitstempel_ausgerueckt = item.fms_zeitstempel;
+          } else {
+            item.em_zeitstempel_ausgerueckt = null;
+          }
+
+
+          /*{ item: {
+      "einsatznummer": "234523753", // mit Einsatzbezug
+      "funkrufname": "FL CB 01/46-01",
+      "kennzeichen": "CB-FW1234",
+      "typ": "HLF",
+      "bezeichnung": "HLF Wache 1",
+      "fms_status": "4",
+      "fms_zeitstempel": "2024-07-12 12:20:32",
+      "wgs84_x": 51.8556,
+      "wgs84_y": 13.1234,
+      "wgs_zeitstemepl": "2024-07-12 12:32:34",
+      "issi": "02345678",
+      "opta": "BBFW IRGENDWAS",
+      "radiochannel": "CB FW LST",
+      "wachenname": "CB FW Cottbus 2",
+      "staerke": "1:1:3"
+      }
+    }, 
+    
+    cks nur Datum der Statusänderung verfügbar
+    */
+
+          // Item_ob
+
+
+          // Abfrage vorbereiten
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO waip_einsatzmittel (
+              id, 
+              zeitstempel,
+              em_waip_einsaetze_id, 
+              els_einsatznummer,
+              em_funkrufname,
+              em_kennzeichen,
+              em_typ,
+              em_bezeichnung,
+              em_fmsstatus,
+              em_wgs84_x,
+              em_wgs84_y,
+              em_h3_index,
+              em_issi,
+              em_opta,
+              em_radiochannel,
+              em_station_id,
+              em_station_nr,
+              em_station_name,
+              em_zeitstempel_ausgerueckt,
+              em_zeitstempel_fms,
+              em_staerke_els
+            ) VALUES (
+              (SELECT ID FROM waip_einsatzmittel WHERE em_funkrufname LIKE ?),
+              DATETIME('now', 'localtime'), 
+              (SELECT ID FROM waip_einsaetze WHERE els_einsatznummer LIKE ?),
+              ?, 
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              (SELECT id FROM waip_wachen WHERE name_wache LIKE ?),
+              (SELECT nr_wache FROM waip_wachen WHERE name_wache LIKE ?),
+              ?,
+              ?,
+              ?
+            );
+          `);
+
+          //Abfrage ausführen
+          const info = stmt.run(
+            item.funkrufname,
+            item.einsatznummer,
+            item.funkrufname,
+            item.kennzeichen,
+            item.typ,
+            item.bezeichnung,
+            item.fms_status,
+            item.wgs84_x,
+            item.wgs84_y,
+            item.geo_h3_index,
+            item.issi,
+            item.opta,
+            item.radiochannel,
+            item.wachenname,
+            item.wachenname,
+            item.wachenname,
+            Datetime_to_SQLiteDate(item.em_zeitstempel_ausgerueckt),
+            Datetime_to_SQLiteDate(item.fms_zeitstempel),
+            item.staerke
+          );
+    
+          // item.funkrufname an arr_rmld_uuid anhängen
+          arr_funkkenner.push(item.funkrufname);
+
+          // Schleife erhoehen
+          itemsProcessed++;
+
+          // Schleife beenden
+          if (itemsProcessed === array.length) {
+            resolve(arr_funkkenner);
+          }
+        });
+      } catch (error) {
+        reject(new Error("Fehler beim Speichern der Einsatzmittel-Daten. " + error));
+      }
+    });
+  }
 
   // Einsatzmittel in gesprochenen Rufnamen umwandeln
   const db_tts_einsatzmittel = (einsatzmittel_obj) => {
@@ -1167,57 +1343,159 @@ module.exports = (db, app_cfg) => {
   const db_rmld_save = (rmld_obj) => {
     return new Promise((resolve, reject) => {
       try {
-        // zunächst prüfen ob Wache (GSSI) gesetzt
-        if (!isNaN(rmld_obj.gssi_wache)) {
-          reuckmeldung.wache_id = responseobj.wachenauswahl;
-        } else {
-          reuckmeldung.wache_id = null;
-        }
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO waip_rueckmeldungen
-          (id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_oldtype, rmld_role, rmld_capability_agt, rmld_capability_ma, rmld_capability_fzf, rmld_capability_med, rmld_recipients_sum, time_receive, time_set, time_arrival, wache_id, wache_nr, wache_name)
-          VALUES (
-            (SELECT id FROM waip_rueckmeldungen WHERE rmld_uuid = ?),
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?, 
-            (SELECT nr_wache FROM waip_wachen WHERE id = ?),
-            (SELECT name_wache FROM waip_wachen WHERE id = ?)
-          ); 
-        `);
-        stmt.run(
-          rmld_obj.response_uuid,
-          rmld_obj.einsatz_id,
-          rmld_obj.response_uuid,
-          rmld_obj.response_alias,
-          rmld_obj.response_adress,
-          rmld_obj.response_oldtype,
-          rmld_obj.response_role,
-          rmld_obj.response_capability_agt,
-          rmld_obj.response_capability_ma,
-          rmld_obj.response_capability_fzf,
-          rmld_obj.response_capability_med,
-          rmld_obj.response_recipients_sum,
-          rmld_obj.time_receive,
-          rmld_obj.time_set,
-          rmld_obj.time_arrival,
-          rmld_obj.wache_id,
-          rmld_obj.wache_id,
-          rmld_obj.wache_id
-        );
-        resolve(rmld_obj.response_uuid);
+        // Variablen vorbereiten
+        const itemsProcessed = 0;
+        const arr_rmld_uuid = [];
+
+        // alle Rückmeldungen per Schliefe in DB in Tabelle waip_rueckmeldungen speichern
+        rmld_obj.rueckmeldungen.forEach((item, index, array) => {
+          // wenn keine Einsatznummer WAIP-Uuid gesetzt ist, einen Fehler ausgeben
+          if (!item.einsatznummer && !item.waip_uuid) {
+            throw "Einsatznummer oder WAIP-Uuid muss gesetzt sein!";
+          }
+
+          // if rmld_obj.response_alias is not set, then set to null
+          if (!item.response_alias) {
+            item.response_alias = null;
+          }
+
+          // if rmld_obj.rmld_adress is not set, then set to null
+          if (!item.rmld_adress) {
+            item.rmld_adress = null;
+          }
+
+          // if rmld_obj.response_role is not set, then set to null
+          if (!item.response_role) {
+            item.response_role = null;
+          }
+
+          // Verschiedenen Funktionen innerhalb der Rückmeldungen auf 1 oder 0 setzen
+          if (item.response_capability_agt) {
+            item.response_capability_agt = 1;
+          } else {
+            item.response_capability_agt = 0;
+          }
+          if (item.response_capability_ma) {
+            item.response_capability_ma = 1;
+          } else {
+            item.response_capability_ma = 0;
+          }
+          if (item.response_capability_fzf) {
+            item.response_capability_fzf = 1;
+          } else {
+            item.response_capability_fzf = 0;
+          }
+          if (item.response_capability_med) {
+            item.response_capability_med = 1;
+          } else {
+            item.response_capability_med = 0;
+          }
+
+          // if rmld_obj.time_arrival is not set, then set to null
+          if (!item.time_arrival) {
+            item.time_arrival = null;
+          }
+
+          // if rmld_obj.type_decision is not set, then set to null
+          if (!item.type_decision) {
+            item.type_decision = null;
+          }
+
+          // if rmld_obj.time_decision is not set, then set to null
+          if (!item.time_decision) {
+            item.time_decision = null;
+          }
+
+          // if rmld_obj.time_receive is not set, then set to null
+          if (!item.time_receive) {
+            item.time_receive = null;
+          }
+
+          // if rmld_obj.wache_nr is not set, then set to null
+          if (!item.wache_nr) {
+            item.wache_nr = null;
+          }
+
+          // if rmld_obj.wache_nr is number, convert to string
+          if (typeof item.wache_nr === "number") {
+            item.wache_nr = item.wache_nr.toString();
+          }
+
+          // if rmld_obj.gruppe is not set, then set to null
+          if (!item.gruppe) {
+            item.gruppe = null;
+          }
+
+          let uuid_query;
+          // wenn Einsatznummer aber keiner WAIP-Uuid gesetzt ist, dann Einsatznummer für Abfrage verwenden
+          if (item.einsatznummer && !item.waip_uuid) {
+            uuid_query = `(SELECT uuid FROM waip_einsaetze WHERE els_einsatznummer = '${item.einsatznummer}')`;
+          }
+          // wenn WAIP-Uuid gesetzt ist, dann WAIP-Uuid für Abfrage verwenden
+          if (item.waip_uuid) {
+            uuid_query = `'${item.waip_uuid}'`;
+          }
+
+          // Abfrage für Insert / Replace vorbereiten
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO waip_rueckmeldungen (
+              id, waip_uuid, rmld_uuid, rmld_alias, rmld_adress, rmld_role, 
+              rmld_capability_agt, rmld_capability_ma, rmld_capability_fzf, rmld_capability_med,
+              time_receive, type_decision, time_decision, time_arrival, wache_id, wache_nr, wache_name, group_nr)
+            VALUES (
+              (SELECT id FROM waip_rueckmeldungen WHERE rmld_uuid = ?),
+              ${uuid_query},
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              ?,
+              (SELECT id FROM waip_wachen WHERE nr_wache = ?),
+              (SELECT nr_wache FROM waip_wachen WHERE nr_wache = ?),
+              (SELECT name_wache FROM waip_wachen WHERE nr_wache = ?),
+              ?
+            ); 
+          `);
+
+          // Daten in Datenbank speichern
+          const info = stmt.run(
+            item.response_uuid,
+            item.response_uuid,
+            item.response_alias,
+            item.response_adress,
+            item.response_role,
+            item.response_capability_agt,
+            item.response_capability_ma,
+            item.response_capability_fzf,
+            item.response_capability_med,
+            item.time_receive,
+            item.type_decision,
+            item.time_decision,
+            item.time_arrival,
+            item.wache_id,
+            item.wache_id,
+            item.wache_id,
+            item.gruppe
+          );
+
+          // item.response_uuid an arr_rmld_uuid anhängen
+          arr_rmld_uuid.push(item.response_uuid);
+
+          // Schleife erhoehen
+          itemsProcessed++;
+
+          // Schleife beenden
+          if (itemsProcessed === array.length) {
+            resolve(arr_rmld_uuid);
+          }
+        });
       } catch (error) {
         reject(new Error("Fehler beim verarbeiten einer Rückmeldung. " + rmld_obj + error));
       }
@@ -1363,7 +1641,7 @@ module.exports = (db, app_cfg) => {
             user, 
             permissions,
             (SELECT config_value FROM waip_user_config WHERE user_id = ? AND config_type = 'resetcounter') reset_counter
-          FROM waip_users 
+          FROM waip_user 
           WHERE id = ?;
         `);
         const row = stmt.get(id, id);
@@ -1383,7 +1661,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT user, id FROM waip_users WHERE ip_address = ?;
+          SELECT user, id FROM waip_user WHERE ip_address = ?;
         `);
         const row = stmt.get(profile_ip);
         if (row === undefined) {
@@ -1402,7 +1680,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT password FROM waip_users WHERE user = ?;
+          SELECT password FROM waip_user WHERE user = ?;
         `);
         const row = stmt.get(user);
         if (row === undefined) {
@@ -1421,7 +1699,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT user, id FROM waip_users WHERE user = ?;
+          SELECT user, id FROM waip_user WHERE user = ?;
         `);
         const row = stmt.get(user);
         if (row === undefined) {
@@ -1440,10 +1718,9 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT permissions FROM waip_users WHERE id = ?;
+          SELECT permissions FROM waip_user WHERE id = ?;
         `);
         const row = stmt.get(id);
-        console.warn("user-api-row", row);
 
         if (row === undefined) {
           resolve(false);
@@ -1465,7 +1742,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT permissions FROM waip_users WHERE id = ?;
+          SELECT permissions FROM waip_user WHERE id = ?;
         `);
         const row = stmt.get(id);
         if (row === undefined) {
@@ -1488,7 +1765,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT user FROM waip_users WHERE user = ?;
+          SELECT user FROM waip_user WHERE user = ?;
         `);
         const row = stmt.get(user);
         if (row === undefined) {
@@ -1507,7 +1784,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          INSERT INTO waip_users ( 
+          INSERT INTO waip_user ( 
             user, 
             password, 
             permissions, 
@@ -1532,7 +1809,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          DELETE FROM waip_users WHERE id = ?;
+          DELETE FROM waip_user WHERE id = ?;
         `);
         const row = stmt.run(user_id);
         if (row === undefined) {
@@ -1568,7 +1845,7 @@ module.exports = (db, app_cfg) => {
     return new Promise((resolve, reject) => {
       try {
         const stmt = db.prepare(`
-          SELECT id, user, description FROM waip_users WHERE id = ?;
+          SELECT id, user, description FROM waip_user WHERE id = ?;
         `);
         const row = stmt.run(user_id);
         if (row === undefined) {
@@ -1594,9 +1871,11 @@ module.exports = (db, app_cfg) => {
     db_einsatz_get_active: db_einsatz_get_active,
     db_einsatz_get_rooms: db_einsatz_get_rooms,
     db_einsaetze_get_old: db_einsaetze_get_old,
+    db_einsatz_statusupdate: db_einsatz_statusupdate,
     db_einsatz_loeschen: db_einsatz_loeschen,
     db_wache_get_all: db_wache_get_all,
     db_wache_vorhanden: db_wache_vorhanden,
+    db_einsatzmittel_update: db_einsatzmittel_update,
     db_tts_einsatzmittel: db_tts_einsatzmittel,
     db_client_update_status: db_client_update_status,
     db_client_get_connected: db_client_get_connected,

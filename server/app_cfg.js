@@ -24,6 +24,7 @@ app_cfg.global = {
   ip_auth_range: ["::ffff:172.16.5.0/24", "::ffff:192.168.2.0/24"],
   saltRounds: 10,
   sessionsecret: "0987654321abcdef#xyz",
+  jwtsecret: "1234567890abcdef#xyz",
 };
 
 // Einstellungen zur Erscheinung der Seite
@@ -51,13 +52,6 @@ app_cfg.rmld = {
   mail_user: "testuser",
   mail_pass: "testuserpass", //'testpass',
   mail_from: "xyz@xxx.xxx", //'keineantwort@wachalarm.info.tm'
-};
-
-// Schnittstellendaten von bestimmten Clients entfernen (Datenschutzoption)
-app_cfg.filter = {
-  enabled: true,
-  on_message_from: ["192.168.2.20", "https://192.168.1.25:8090/api"],
-  remove_data: ["besonderheiten", "strasse", "objekt", "objektnr", "wachfolge", "wgs84_x", "wgs84_y"],
 };
 
 // Standardwerte für die Datenbank

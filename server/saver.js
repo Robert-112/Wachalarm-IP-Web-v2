@@ -1,5 +1,4 @@
 module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
-
   // Module laden
   const turf = require("@turf/turf");
 
@@ -7,10 +6,10 @@ module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
   let uuid_pattern = new RegExp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "i");
 
   // Speichern eines neuen Einsatzes
-  const save_new_einsatz = (waip_data, remote_addr, app_id) => {
+  const save_einsatz = (waip_data, remote_addr) => {
     return new Promise(async (resolve, reject) => {
       try {
-        let waip_json = await validate_waip(waip_data);
+        let waip_json = await validate_einsatz(waip_data);
         if (waip_json) {
           // Polygon erzeugen und zuweisen falls nicht vorhanden
           if (!waip_json.ortsdaten.wgs84_area) {
@@ -42,15 +41,21 @@ module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
               waip_json.einsatzdaten.uuid = uuidv4();
             }
           }
-          // nicht erwuenschte Daten ggf. entfernen (Datenschutzoption)
-          let data_filtered = await filter_api_data(waip_json, remote_addr);
 
-          // Einsatz speichern
-          waip.waip_speichern(data_filtered);
-          logger.log("log", `Neuer Einsatz von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(data_filtered)}`);
+          // Einsatzdaten in Datenbank speichern und ID des Einsatzes zurückbekommen
+          const waip_id = await sql.db_einsatz_speichern(waip_json);
+          logger.log(
+            "log",
+            `Neuer Einsatz von ${remote_addr} wurde mit der ID ${waip_id} gespeichert und wird jetzt weiter verarbeitet: ${JSON.stringify(
+              waip_json
+            )}`
+          );
 
           // true zurückgeben
           resolve(true);
+
+          // Einsatz an Socket-IO-Räume verteilen
+          waip.waip_verteilen_for_rooms(waip_id);
         } else {
           // Error-Meldung erstellen
           throw new Error("Fehler beim validieren eines Einsatzes. " + waip_data);
@@ -61,17 +66,18 @@ module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
     });
   };
 
-  const save_new_rmld = (rmld_data, remote_addr, app_id) => {
+  const save_rmld = (rmld_data, remote_addr) => {
     return new Promise(async (resolve, reject) => {
       try {
+        logger.log("debug", `Rückmeldung von ${remote_addr} erhalten, wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
         let valid = await validate_rmld(rmld_data);
         if (valid) {
-          // Rückmeldung speichern und verteilen
-          await sql.db_rmld_save(rmld_data);
-          logger.log("log", `Rückmeldung von ${remote_addr} wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
+          // Rückmeldung speichern
+          const arr_uuid_rueckmeldungen = await sql.db_rmld_save(rmld_data);
+          logger.log("log", `${arr_uuid_rueckmeldungen.length} Rückmeldung(en) von ${remote_addr} erhalten.`);
 
           // Rückmeldung verteilen
-          waip.rmld_verteilen_by_uuid(rmld_data.waip_uuid, rmld_data.rmld_uuid);
+          //waip.rmld_verteilen_by_uuid(arr_uuid_rueckmeldungen);
 
           // true zurückgeben
           resolve(true);
@@ -80,91 +86,67 @@ module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
           throw new Error("Fehler beim validieren einer Rückmeldung. " + rmld_data);
         }
       } catch (error) {
-        new Error("Fehler beim speichern einer neuen Rückmeldung (RMLD). " + remote_addr + error);
+        reject(new Error("Fehler beim speichern einer neuen Rückmeldung (RMLD). " + remote_addr + error));
       }
     });
   };
 
-  const filter_api_data = (data, remote_ip) => {
-    return new Promise((resolve, reject) => {
+  const save_einsatzstatus = (einsatzstatus_data, remote_addr) => {
+    return new Promise(async (resolve, reject) => {
       try {
-        if (app_cfg.filter.enabled) {
-          // Filter nur anwenden wenn Einsatzdaten von bestimmten IP-Adressen kommen
-          if (app_cfg.filter.on_message_from.includes(remote_ip)) {
-            let data_filtered = data;
-            // Schleife definieren
-            function loop_done(data_filtered) {
-              resolve(data_filtered);
+        logger.log("log", `Meldung zu einem Einsatzstatus von ${remote_addr} erhalten, wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
+        let valid = await validate_einsatzstatus(einsatzstatus_data);
+        if (valid) {
+          // Status eines Einsatzes aktualisieren
+          const anz_update = await sql.db_einsatz_statusupdate(einsatzstatus_data);
+          if (anz_update > 0) {
+            if (einsatzstatus_data.waip_uuid) {
+              logger.log("log", `Einsatzstatus zum Einsatz ${einsatzstatus_data.waip_uuid} aktualisiert. Anzahl: ${anz_update}.`);
+            } else {
+              logger.log("log", `Einsatzstatus zum Einsatz ${einsatzstatus_data.einsatznummer}  aktualisiert. Anzahl: ${anz_update}.`);
             }
-            let itemsProcessed = 0;
-            // nicht gewollte Daten entfernen
-            app_cfg.filter.remove_data.forEach(function (item, index, array) {
-              data_filtered.einsatzdaten[item] = "";
-              data_filtered.ortsdaten[item] = "";
-              // Schleife erhoehen
-              itemsProcessed++;
-              if (itemsProcessed === array.length) {
-                // Schleife beenden
-                loop_done(data_filtered);
-              }
-            });
           } else {
-            resolve(data);
+            logger.log("log", `Es wurde kein Einsatzstatus aktualisiert.`);
           }
+          // true zurückgeben
+          resolve(true);
         } else {
-          resolve(data);
+          // Error-Meldung erstellen
+          throw new Error("Fehler beim validieren einer Einsatz-Status-Meldung. " + einsatzstatus_data);
         }
       } catch (error) {
-        reject(new Error("Fehler beim Filtern der übergebenen Daten. " + error));
+        reject(new Error("Fehler beim speichern einer Einsatz-Status-Meldung. " + remote_addr + error));
       }
     });
   };
 
-  const validate_waip = (data) => {
-    return new Promise((resolve, reject) => {
-      /* Beispiel eines Einsatzes
-      {
-        "einsatzdaten": {
-          "eisnatznummer": "753",
-          "alarmzeit": "01.01.19&01:00",
-          "art": "Rettungseinsatz",
-          "stichwort": "N4:Trauma",
-          "sondersignal": 1,
-          "besonderheiten": "DEMO Wachalarm-IP-Web - Verkehrsunfall",
-          "einsatzdetails": "Feuerwehrplan 12 A",
-          "uuid": "8ac19295-8efa-4a5e-bb80-227a6e419789"
-        },
-        "ortsdaten": {
-          "ort": "Luckau",
-          "ortsteil": "",
-          "strasse": "Golzener Straße 21",
-          "objekt": "",
-          "objektnr": "-1",
-          "objektart": "",
-          "wachfolge": "611202",
-          "wgs84_x": "51.8556",
-          "wgs84_y": "13.7039"
-        },
-        "alarmdaten": [
-          {
-            "typ": "ALARM",
-            "netzadresse": "",
-            "wachenname": "LDS RW Luckau",
-            "einsatzmittel": "AK LDS 12/82-01",
-            "zeit_alarmierung": "15:47",
-            "zeit_ausgerueckt": ""
-          },
-          {
-            "typ": "ALARM",
-            "netzadresse": "",
-            "wachenname": "LDS RW Luckau",
-            "einsatzmittel": "AK LDS 12/83-02",
-            "zeit_alarmierung": "15:47",
-            "zeit_ausgerueckt": ""
-          }
-        ]
+  const save_einsatzmittel = (einsatzmittel_data, remote_addr) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        logger.log("debug", `Einsatzmittel von ${remote_addr} erhalten, wird jetzt verarbeitet: ${JSON.stringify(rmld_data)}`);
+        let valid = await validate_einsatzmittel(einsatzmittel_data);
+        if (valid) {
+          // Einsatzmittel speichern
+          const arr_funkrufnamen = await sql.db_einsatzmittel_update(einsatzmittel_data);
+          logger.log("log", `${arr_uuid_rueckmeldungen.length} Einsatzmittel von ${remote_addr} erhalten.`);
+
+          // Einsatzmittel verteilen
+          //waip.em_verteilen_by_id(arr_funkrufnamen);
+
+          // true zurückgeben
+          resolve(true);
+        } else {
+          // Error-Meldung erstellen
+          throw new Error("Fehler beim validieren eines Einsatzmittels. " + einsatzmittel_data);
+        }
+      } catch (error) {
+        reject(new Error("Fehler beim speichern eines Einsatzmittels. " + remote_addr + error));
       }
-      */
+    });
+  };
+
+  const validate_einsatz = (data) => {
+    return new Promise((resolve, reject) => {
       try {
         // false wenn data NULL oder nicht definiert
         if (data === null || data === undefined) {
@@ -215,8 +197,40 @@ module.exports = (app_cfg, sql, waip, uuidv4, logger) => {
     });
   };
 
+  const validate_einsatzmittel = (data) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // TODO Validierung: Einsatzmittel auf Plausibilität
+
+        // Log
+        logger.log("debug", "Validierung Einsatzmittel: " + JSON.stringify(data));
+
+        resolve(true);
+      } catch (error) {
+        reject(new Error("Fehler beim Validieren eines Einsatzmittels " + data + error));
+      }
+    });
+  };
+
+  const validate_einsatzstatus = (data) => {
+    return new Promise((resolve, reject) => {
+      try {
+        // TODO Validierung: Einsatzstatus auf Plausibilität
+
+        // Log
+        logger.log("debug", "Validierung Einsatzstatus: " + JSON.stringify(data));
+
+        resolve(true);
+      } catch (error) {
+        reject(new Error("Fehler beim Validieren des Einsatzstatus " + data + error));
+      }
+    });
+  };
+
   return {
-    save_new_einsatz: save_new_einsatz,
-    save_new_rmld: save_new_rmld,
+    save_einsatz: save_einsatz,
+    save_rmld: save_rmld,
+    save_einsatzstatus: save_einsatzstatus,
+    save_einsatzmittel: save_einsatzmittel,
   };
 };

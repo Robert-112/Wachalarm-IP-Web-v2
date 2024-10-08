@@ -12,7 +12,7 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
   let JwtStrategy = passportJWT.Strategy;
   let jwtOptions = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: "wowwow",
+    secretOrKey: app_cfg.global.jwtsecret,
   };
 
   const sessionMiddleware = session({
@@ -69,17 +69,15 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
         usernameField: "user",
       },
       async (user, password, done) => {
-        console.warn("passport", user);
-
         try {
+          // Verschlüsseltes Passwort aus DB abfragen
           const row = await sql.auth_localstrategy_cryptpassword(user);
-          console.warn("row", row);
           if (!row) return done(null, false);
+          // Passwort-Hash mit dem aus der DB vergleichen
           const res = await bcrypt.compare(password, row.password);
-          console.warn("res", res);
           if (!res) return done(null, false);
+          // Benutzerdaten zurückgeben
           const userRow = await sql.auth_localstrategy_userid(user);
-          console.warn("userRow", userRow);
           return done(null, userRow);
         } catch (error) {
           logger.log("error", "Fehler bei der Benutzer-Authentifizierung: " + error);
@@ -113,9 +111,9 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
 
   // JWT-Authentifizierung
   passport.use(
-    new JwtStrategy(jwtOptions, (jwt_payload, done) => {
-      console.log("payload received", jwt_payload);
-      let user = sql.auth_getUser(jwt_payload.id);
+    new JwtStrategy(jwtOptions, async (jwt_payload, done) => {
+      // User anhand der ID aus dem Token holen
+      let user = await sql.auth_getUser(jwt_payload.id);
 
       if (user) {
         return done(null, user);
@@ -181,10 +179,7 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
         const api_user = await sql.auth_ensureApi(user_id);
         if (api_user) {
           // User wird mit seiner ID identifiziert
-          console.warn("checked-api");
-
           let payload = { id: user_id };
-          console.warn("payload", payload);
           // TODO Gültigkeit des API-Token auf eine bestimmte Zeit begrenzen
           let token = jwt.sign(payload, jwtOptions.secretOrKey /* , expiresIn: "1h" */);
           resolve(token);
@@ -243,7 +238,7 @@ module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
   const editUser = async (req, res) => {
     try {
       req.runquery = false;
-      req.query = "UPDATE waip_users SET ";
+      req.query = "UPDATE waip_user SET ";
 
       if (req.body.password.length == 0) {
         req.flash("successMessage", "Passwort wurde nicht geändert.");

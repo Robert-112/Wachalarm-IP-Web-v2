@@ -5,32 +5,6 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
   const nodemailer = require("nodemailer");
   let proc = require("child_process");
 
-  const waip_speichern = (einsatzdaten) => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Roh-Einsatzdaten  in Datenbank speichern und ID des Einsatzes zurückbekommen
-        const waip_id = await sql.db_einsatz_speichern(einsatzdaten);
-        logger.db_log("waip", `Neuen Einsatz mit der ID ${waip_id} gespeichert.`);
-
-        // nach dem Speichern anhand der waip_id die beteiligten Wachennummern / Socket-Räume zum Einsatz ermitteln
-        const socket_rooms = await sql.db_einsatz_get_rooms(waip_id);
-
-        // waip_rooms muss größer 1 sein, da sonst nur der Standard-Raum '0' vorhanden ist
-        if (socket_rooms.length == 1 && socket_rooms[0].room == "0") {
-          // wenn kein Raum (keine Wache) ausser '0' zurueckgeliefert wird, dann Einsatz direkt wieder loeschen weil keine Wachen dazu hinterlegt
-          logger.log("warn", `Keine Wache für den Einsatz mit der ID ${waip_id} vorhanden! Einsatz wird gelöscht!`);
-          // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
-          sql.db_einsatz_loeschen(waip_id);
-        } else {
-          // Einsatzdaten an alle beteiligten Wachen verteilen
-          waip_verteilen_for_rooms(waip_id, socket_rooms);
-        }
-      } catch (error) {
-        reject(new Error("Fehler beim Speichern der Waip-Einsatzdaten. " + error));
-      }
-    });
-  };
-
   const waip_verteilen_for_one_client = (einsatzdaten, socket, wachen_nr) => {
     return new Promise(async (resolve, reject) => {
       try {
@@ -92,34 +66,45 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     });
   };
 
-  const waip_verteilen_for_rooms = (waip_id, wachen_nrn) => {
+  const waip_verteilen_for_rooms = (waip_id) => {
     return new Promise(async (resolve, reject) => {
       try {
-        // Einsatzdaten an alle beteiligten Wachen (Websocket-Raum) verteilen
-        wachen_nrn.forEach(async (room) => {
-          wachen_nr = room.room;
+        // anhand der waip_id die beteiligten Wachennummern / Socket-Räume zum Einsatz ermitteln
+        const socket_rooms = await sql.db_einsatz_get_rooms(waip_id);
 
-          // Einsatzdaten passend pro Wache aus Datenbank laden
-          const einsatzdaten = await sql.db_einsatz_get_for_wache(waip_id, wachen_nr);
+        // waip_rooms muss größer 1 sein, da sonst nur der Standard-Raum '0' vorhanden ist
+        if (socket_rooms.length == 1 && socket_rooms[0].room == "0") {
+          // wenn kein Raum (keine Wache) ausser '0' zurueckgeliefert wird, dann Einsatz direkt wieder loeschen weil keine Wachen dazu hinterlegt
+          logger.log("warn", `Keine Wache für den Einsatz mit der ID ${waip_id} vorhanden! Einsatz wird gelöscht!`);
+          // FIXME db_einsatz_loeschen liefert die Anzahl der gelöschten Daten zurück, hier beachten
+          sql.db_einsatz_loeschen(waip_id);
+        } else {
+          // Einsatzdaten an alle beteiligten Wachen (Websocket-Raum) verteilen
+          socket_rooms.forEach(async (room) => {
+            wachen_nr = room.room;
 
-          // alles Sockets der Wache ermitteln
-          const sockets = await io.of("/waip").in(wachen_nr).fetchSockets();
+            // Einsatzdaten passend pro Wache aus Datenbank laden
+            const einsatzdaten = await sql.db_einsatz_get_for_wache(waip_id, wachen_nr);
 
-          // an jeden Socket entsprechende Daten senden
-          for (const socket of sockets) {
-            if (!einsatzdaten) {
-              // Standby senden
-              standby_verteilen_for_one_client(socket);
-              // wenn keine Einsatzdaten vorhanden sind, dann nichts senden (Standby)
-              logger.db_log("waip", `Kein Einsatz passender ${wachen_nr} vorhanden, sende keine Einsatzdaten, sondern Standby.`);
-              resolve(false);
-            } else {
-              // Einsatz an den einzelnen Socket versenden
-              waip_verteilen_for_one_client(einsatzdaten, socket, wachen_nr);
-              resolve(true);
+            // alles Sockets der Wache ermitteln
+            const sockets = await io.of("/waip").in(wachen_nr).fetchSockets();
+
+            // an jeden Socket entsprechende Daten senden
+            for (const socket of sockets) {
+              if (!einsatzdaten) {
+                // Standby senden
+                standby_verteilen_for_one_client(socket);
+                // wenn keine Einsatzdaten vorhanden sind, dann nichts senden (Standby)
+                logger.db_log("waip", `Kein Einsatz passender ${wachen_nr} vorhanden, sende keine Einsatzdaten, sondern Standby.`);
+                resolve(false);
+              } else {
+                // Einsatz an den einzelnen Socket versenden
+                waip_verteilen_for_one_client(einsatzdaten, socket, wachen_nr);
+                resolve(true);
+              }
             }
-          }
-        });
+          });
+        }
       } catch (error) {
         reject(new Error(`Fehler beim Verteilen der Waip-Einsatzdaten ${waip_id} an Wachen ${socket_rooms}. ` + error));
       }
@@ -140,7 +125,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     });
   };
 
-  const rmld_verteilen_by_uuid = (waip_uuid, rmld_uuid) => {
+  const rmld_verteilen_by_uuid = (arr_rmld_uuid) => {
     return new Promise(async (resolve, reject) => {
       try {
         // Einsatz-ID mittels Einsatz-UUID ermitteln
@@ -428,7 +413,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
       }
     });
 
-    sql.db_einsaetze_get_old(app_cfg.global.time_to_delete_waip, (old_waips) => {
+    sql.db_einsaetze_get_old( (old_waips) => {
       // FIXME war zuvor eine Schleife die zurückgeliefert wurde!!!!
       // wurde in Version 2 geändert in ein Object, welches jetzt hier in einer Schleife abzuarbeiten ist
 
@@ -627,7 +612,6 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
   setInterval(system_cleanup, app_cfg.global.system_cleanup_time);
 
   return {
-    waip_speichern: waip_speichern,
     waip_verteilen_for_one_client: waip_verteilen_for_one_client,
     waip_verteilen_for_rooms: waip_verteilen_for_rooms,
     standby_verteilen_for_one_client: standby_verteilen_for_one_client,

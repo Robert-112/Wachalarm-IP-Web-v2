@@ -25,10 +25,9 @@ module.exports = (bcrypt, app_cfg) => {
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         uuid TEXT,
         zeitstempel DATETIME DEFAULT (DATETIME(CURRENT_TIMESTAMP, 'LOCALTIME')),
+        ablaufzeit DATETIME,         -- neu  
         els_einsatz_id INTEGER,      -- neu
-        els_einsatz_nummer TEXT,     -- vorher: einsatznummer TEXT,
-        els_einsatz_status TEXT,     -- neu
-        els_zeitstempel DATETIME,    -- neu
+        els_einsatznummer TEXT,      -- vorher: einsatznummer TEXT,
         alarmzeit TEXT,
         einsatzart TEXT,
         stichwort TEXT,
@@ -58,13 +57,11 @@ module.exports = (bcrypt, app_cfg) => {
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
         zeitstempel DATETIME DEFAULT (DATETIME(CURRENT_TIMESTAMP)),
         em_waip_einsaetze_id INTEGER NOT NULL,       -- vorher: waip_einsaetze_ID
-        els_einsatzmittel_id INTEGER,                -- neu
-        els_einsatz_nummer TEXT,                     -- neu
+        els_einsatznummer TEXT,                      -- neu
         em_funkrufname TEXT,                         -- vorher: einsatzmittel TEXT,
         em_kennzeichen TEXT,                         -- neu
         em_typ TEXT,                                 -- neu
         em_bezeichnung TEXT,                         -- neu
-        em_freitext TEXT,                            -- neu
         em_fmsstatus TEXT,                           -- vorher: status TEXT,
         em_wgs84_x REAL,                             -- vorher: wgs84_x TEXT,
         em_wgs84_y REAL,                             -- vorher: wgs84_y TEXT,
@@ -78,9 +75,7 @@ module.exports = (bcrypt, app_cfg) => {
         em_zeitstempel_alarmierung DATETIME,         -- vorher: zeitstempel TEXT,
         em_zeitstempel_ausgerueckt DATETIME,         -- neu
         em_zeitstempel_fms DATETIME,                 -- neu
-        em_zeitstempel_wgs DATETIME,                 -- neu
-        em_staerke_els TEXT,                         -- vorher: staerke TEXT,
-        em_isin_els INTEGER DEFAULT 0 NOT NULL       -- neu
+        em_staerke_els TEXT                         -- vorher: staerke TEXT
       );
 
       -- Tabelle für Wachen
@@ -151,7 +146,7 @@ module.exports = (bcrypt, app_cfg) => {
       );
 
       -- Tabelle für Benutzer
-      CREATE TABLE IF NOT EXISTS waip_users (
+      CREATE TABLE IF NOT EXISTS waip_user (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user TEXT,
         password TEXT,
@@ -167,7 +162,7 @@ module.exports = (bcrypt, app_cfg) => {
         user_id INTEGER,                -- neu
         external_id TEXT,               -- neu
         public_key TEXT,              -- neu
-        FOREIGN KEY(id_user) REFERENCES waip_users(id)
+        FOREIGN KEY(user_id) REFERENCES waip_users(id)
       );
 
       -- Tabelle für Einstellungen der Benutzer
@@ -176,7 +171,7 @@ module.exports = (bcrypt, app_cfg) => {
         user_id INTEGER,
         config_type TEXT,               -- neu
         config_value TEXT,              -- neu
-        FOREIGN KEY(id_user) REFERENCES waip_users(id)
+        FOREIGN KEY(user_id) REFERENCES waip_users(id)
       );
       
       -- Tabelle für Übersetzungen erstellen
@@ -216,7 +211,7 @@ module.exports = (bcrypt, app_cfg) => {
     // Standard-Admin hinterlegen
     const hash_adm = bcrypt.hashSync(app_cfg.global.defaultpass, app_cfg.global.saltRounds);
     const insert_adm = db.prepare(`
-      INSERT INTO waip_users ( 
+      INSERT INTO waip_user ( 
         user, password, permissions, ip_address 
       ) VALUES ( 
         ?, ?, 'admin', ?
@@ -226,7 +221,7 @@ module.exports = (bcrypt, app_cfg) => {
     // Standard-API-User hinterlegen
     const hash_apiuser = bcrypt.hashSync(app_cfg.global.defaultapipass, app_cfg.global.saltRounds);
     const insert_apiuser = db.prepare(`
-      INSERT INTO waip_users ( 
+      INSERT INTO waip_user ( 
         user, password, permissions, ip_address 
       ) VALUES ( 
         ?, ?, 'api', ?
