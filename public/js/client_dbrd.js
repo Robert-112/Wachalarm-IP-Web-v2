@@ -122,6 +122,11 @@ function initFullscreenMap() {
     }
   }
   drawRoutesOnMap(currentRoutes, fullscreenMap, fullscreenRouteLayers);
+  // Sofort auf tatsächlichen Inhalt zoomen statt auf den groben Initial-View zu warten
+  // (das "shown.bs.modal"-Event kann je nach Timing vor dieser Funktion feuern und
+  // fitFullscreenMap() findet dann noch keine fullscreenMap vor -> Karte bleibt auf
+  // Deutschland-weitem Fallback stehen)
+  fitFullscreenMap();
 }
 $("#mapModal").on("shown.bs.modal", function () {
   fitFullscreenMap();

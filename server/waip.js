@@ -378,14 +378,18 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
     }
 
     const hat_geometry = !!einsatzdaten.geometry;
+    const einsatz_hat_koordinaten = !!(einsatzdaten.wgs84_x && einsatzdaten.wgs84_y);
 
     for (const station of stationen) {
       try {
-        // Genaue Route von Wache zum Einsatzort
-        const route_full = await osrm.get_route(
-          station.wgs84_x, station.wgs84_y,
-          einsatzdaten.wgs84_x, einsatzdaten.wgs84_y
-        );
+        // Genaue Route von Wache zum Einsatzort (nur bei vorhandenen Einsatzkoordinaten,
+        // sonst würde von 0,0 aus geroutet)
+        const route_full = einsatz_hat_koordinaten
+          ? await osrm.get_route(
+              station.wgs84_x, station.wgs84_y,
+              einsatzdaten.wgs84_x, einsatzdaten.wgs84_y
+            )
+          : null;
 
         let route_half;
         if (hat_geometry) {

@@ -80,52 +80,101 @@ module.exports = (db, app_cfg) => {
           throw new Error("Keine UUID überbermittelt, Einsatz wird nicht gespeichert.");
         }
 
-        // Einsatzdaten verarbeiten/speichern
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO waip_einsaetze (
-            id, uuid, els_einsatznummer, alarmzeit, ablaufzeit, einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
-            ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges, objekt, objektteil, objektnummer, objektart, 
-            wachenfolge, wgs84_x, wgs84_y, geometry
-          ) VALUES (
-            (SELECT ID FROM waip_einsaetze WHERE els_einsatznummer LIKE ?),
-            ?,
-            ?,
-            DATETIME(?, 'localtime'),
-            DATETIME('now', '+${app_cfg.global.time_to_delete_waip} minutes', 'localtime'), 
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        `);
+        // Hilfsfunktionen: fehlende/leere Werte explizit als NULL übergeben,
+        // damit COALESCE beim Update bestehende DB-Werte erhalten kann.
+        const nullIfEmpty = (v) => (v === null || v === undefined || v === "" ? null : v);
+        const nullIfNaN   = (v) => (Number.isNaN(v) ? null : v);
+        const geometryStr = (g) => (g != null ? JSON.stringify(g) : null);
 
-        const info = stmt.run(
-          content.einsatzdaten.einsatznummer,
-          content.einsatzdaten.uuid,
-          content.einsatzdaten.einsatznummer,
-          Datetime_to_SQLiteDate(content.einsatzdaten.alarmzeit),
-          content.einsatzdaten.art,
-          content.einsatzdaten.stichwort,
-          parseInt(content.einsatzdaten.sondersignal, 10),
-          content.einsatzdaten.besonderheiten,
-          content.einsatzdaten.einsatzdetails,
-          content.ortsdaten.ort,
-          content.ortsdaten.ortsteil,
-          content.ortsdaten.ortslage,
-          content.ortsdaten.strasse,
-          content.ortsdaten.hausnummer,
-          content.ortsdaten.ort_sonstiges,
-          content.ortsdaten.objekt,
-          content.ortsdaten.objektteil,
-          content.ortsdaten.objektnr,
-          content.ortsdaten.objektart,
-          content.ortsdaten.wachfolge,
-          parseFloat(content.ortsdaten.wgs84_x),
-          parseFloat(content.ortsdaten.wgs84_y),
-          JSON.stringify(content.ortsdaten.geometry)
-        );
+        const einsatzart    = nullIfEmpty(content.einsatzdaten.art);
+        const stichwort     = nullIfEmpty(content.einsatzdaten.stichwort);
+        const sondersignal  = nullIfNaN(parseInt(content.einsatzdaten.sondersignal, 10));
+        const besonderheiten = nullIfEmpty(content.einsatzdaten.besonderheiten);
+        const einsatzdetails = nullIfEmpty(content.einsatzdaten.einsatzdetails);
+        const ort           = nullIfEmpty(content.ortsdaten.ort);
+        const ortsteil      = nullIfEmpty(content.ortsdaten.ortsteil);
+        const ortslage      = nullIfEmpty(content.ortsdaten.ortslage);
+        const strasse       = nullIfEmpty(content.ortsdaten.strasse);
+        const hausnummer    = nullIfEmpty(content.ortsdaten.hausnummer);
+        const ort_sonstiges = nullIfEmpty(content.ortsdaten.ort_sonstiges);
+        const objekt        = nullIfEmpty(content.ortsdaten.objekt);
+        const objektteil    = nullIfEmpty(content.ortsdaten.objektteil);
+        const objektnr      = nullIfEmpty(content.ortsdaten.objektnr);
+        const objektart     = nullIfEmpty(content.ortsdaten.objektart);
+        const wachfolge     = nullIfEmpty(content.ortsdaten.wachfolge);
+        const wgs84_x       = nullIfNaN(parseFloat(content.ortsdaten.wgs84_x));
+        const wgs84_y       = nullIfNaN(parseFloat(content.ortsdaten.wgs84_y));
+        const geometry      = geometryStr(content.ortsdaten.geometry);
+        const alarmzeit     = Datetime_to_SQLiteDate(content.einsatzdaten.alarmzeit);
+
+        // Prüfen ob der Einsatz bereits in der DB vorhanden ist
+        const existingRow = db.prepare("SELECT id FROM waip_einsaetze WHERE uuid = ?").get(content.einsatzdaten.uuid);
+
+        let id;
+
+        if (!existingRow) {
+          // Neuer Einsatz: vollständiger INSERT
+          const stmt = db.prepare(`
+            INSERT INTO waip_einsaetze (
+              uuid, els_einsatznummer, alarmzeit, ablaufzeit, einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
+              ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges, objekt, objektteil, objektnummer, objektart,
+              wachenfolge, wgs84_x, wgs84_y, geometry
+            ) VALUES (
+              ?, ?, DATETIME(?, 'localtime'),
+              DATETIME('now', '+${app_cfg.global.time_to_delete_waip} minutes', 'localtime'),
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            );
+          `);
+          const info = stmt.run(
+            content.einsatzdaten.uuid, content.einsatzdaten.einsatznummer, alarmzeit,
+            einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
+            ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges,
+            objekt, objektteil, objektnr, objektart, wachfolge,
+            wgs84_x, wgs84_y, geometry
+          );
+          id = info.lastInsertRowid;
+        } else {
+          // Bestehender Einsatz: UPDATE mit COALESCE, damit reduzierte Folge-Datensätze
+          // keine vollständigen Daten in der DB überschreiben können. Felder werden nur
+          // aktualisiert, wenn der neue Wert nicht NULL ist; ablaufzeit wird immer neu gesetzt.
+          const stmt = db.prepare(`
+            UPDATE waip_einsaetze SET
+              alarmzeit    = COALESCE(DATETIME(?, 'localtime'), alarmzeit),
+              ablaufzeit   = DATETIME('now', '+${app_cfg.global.time_to_delete_waip} minutes', 'localtime'),
+              einsatzart   = COALESCE(?, einsatzart),
+              stichwort    = COALESCE(?, stichwort),
+              sondersignal = COALESCE(?, sondersignal),
+              besonderheiten = COALESCE(?, besonderheiten),
+              einsatzdetails = COALESCE(?, einsatzdetails),
+              ort          = COALESCE(?, ort),
+              ortsteil     = COALESCE(?, ortsteil),
+              ortslage     = COALESCE(?, ortslage),
+              strasse      = COALESCE(?, strasse),
+              hausnummer   = COALESCE(?, hausnummer),
+              ort_sonstiges = COALESCE(?, ort_sonstiges),
+              objekt       = COALESCE(?, objekt),
+              objektteil   = COALESCE(?, objektteil),
+              objektnummer = COALESCE(?, objektnummer),
+              objektart    = COALESCE(?, objektart),
+              wachenfolge  = COALESCE(?, wachenfolge),
+              wgs84_x      = COALESCE(?, wgs84_x),
+              wgs84_y      = COALESCE(?, wgs84_y),
+              geometry     = COALESCE(?, geometry)
+            WHERE uuid = ?;
+          `);
+          stmt.run(
+            alarmzeit,
+            einsatzart, stichwort, sondersignal, besonderheiten, einsatzdetails,
+            ort, ortsteil, ortslage, strasse, hausnummer, ort_sonstiges,
+            objekt, objektteil, objektnr, objektart, wachfolge,
+            wgs84_x, wgs84_y, geometry,
+            content.einsatzdaten.uuid
+          );
+          id = existingRow.id;
+        }
 
         // anschließend die zugehörigen Einsatzmittel per Schliefe in DB speichern
         let itemsProcessed = 0;
-
-        // letzte Einsatz-ID ermitteln
-        let id = info.lastInsertRowid;
 
         // Abschluss der Schleife definieren
         const loop_done = (waip_id) => {
