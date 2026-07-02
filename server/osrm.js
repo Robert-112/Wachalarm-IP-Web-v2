@@ -54,8 +54,10 @@ module.exports = (app_cfg, logger) => {
       const intersections = turf.lineIntersect(line, poly);
       if (dev) logger.log("log", `OSRM clip_route_at_boundary: ${intersections.features.length} Schnittpunkt(e) mit Bereichsgrenze gefunden`);
       if (!intersections.features.length) {
-        if (dev) logger.log("log", "OSRM clip_route_at_boundary: Kein Schnitt → ungekürzte Route wird verwendet");
-        return routeGeojson;
+        // Kein Schnittpunkt ermittelbar → Eintrittspunkt unbekannt. Ungekürzte Route würde
+        // den echten Einsatzort verraten, daher lieber gar keine Route als eine unsichere.
+        logger.log("warn", "OSRM clip_route_at_boundary: Kein Schnitt mit Bereichsgrenze gefunden → route_half wird nicht gesetzt");
+        return null;
       }
 
       // Schnittpunkte nach Distanz vom Routen-Start sortieren
@@ -72,8 +74,10 @@ module.exports = (app_cfg, logger) => {
       if (dev) logger.log("log", `OSRM clip_route_at_boundary: Gekürzt auf ${clipped.geometry.coordinates?.length ?? 0} Punkte (Eintrittspunkt bei loc=${withDist[withDist.length - 1].loc.toFixed(1)}m)`);
       return clipped.geometry;
     } catch (err) {
+      // Auch hier: bei Fehlschlag lieber keine Route liefern als versehentlich die
+      // ungekürzte (den echten Einsatzort verratende) Route.
       logger.log("warn", `OSRM Clipping fehlgeschlagen: ${err.message}`);
-      return routeGeojson;
+      return null;
     }
   };
 
