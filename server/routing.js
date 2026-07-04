@@ -643,6 +643,57 @@ module.exports = function (app, sql, app_cfg, passport, auth, saver, logger) {
     }
   });
 
+  // Ersetzungen-Administration anzeigen
+  app.get("/adm_edit_replace", auth.ensureAdmin, async (req, res, next) => {
+    try {
+      const replace = await sql.db_replace_get_all_full();
+      res.render("admin/adm_edit_replace", {
+        public: app_cfg.public,
+        title: "Ersetzungen verwalten",
+        user: req.user,
+        session_max_age: app_cfg.global.session_cookie_max_age,
+        replace,
+        error: req.query.error || null,
+        success: req.query.success || null,
+      });
+    } catch (error) {
+      const err = new Error("Fehler beim Laden der Seite /adm_edit_replace. " + error);
+      logger.log("error", err);
+      err.status = 500;
+      next(err);
+    }
+  });
+
+  // Ersetzung bearbeiten
+  app.post("/adm_edit_replace/edit", auth.ensureAdmin, async (req, res) => {
+    try {
+      await sql.db_replace_update(req.body);
+      res.redirect("/adm_edit_replace?success=" + encodeURIComponent("Ersetzung erfolgreich bearbeitet."));
+    } catch (error) {
+      res.redirect("/adm_edit_replace?error=" + encodeURIComponent("Fehler beim Bearbeiten der Ersetzung. " + error));
+    }
+  });
+
+  // Ersetzung löschen
+  app.post("/adm_edit_replace/delete", auth.ensureAdmin, async (req, res) => {
+    try {
+      await sql.db_replace_delete(req.body.id);
+      res.redirect("/adm_edit_replace?success=" + encodeURIComponent("Ersetzung erfolgreich gelöscht."));
+    } catch (error) {
+      res.redirect("/adm_edit_replace?error=" + encodeURIComponent("Fehler beim Löschen der Ersetzung. " + error));
+    }
+  });
+
+  // Neue Ersetzung anlegen
+  app.post("/adm_edit_replace/create", auth.ensureAdmin, async (req, res) => {
+    try {
+      await sql.db_replace_create(req.body);
+      res.redirect("/adm_edit_replace?success=" + encodeURIComponent("Ersetzung erfolgreich angelegt."));
+    } catch (error) {
+      res.redirect("/adm_edit_replace?error=" + encodeURIComponent("Fehler beim Anlegen der Ersetzung. " + error));
+    }
+  });
+
   /* ###################### */
   /* ##### Testseiten ##### */
   /* ###################### */
