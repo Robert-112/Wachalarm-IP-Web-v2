@@ -22,6 +22,7 @@ const app_cfg = {};
 app_cfg.global = {
   http_port: Number(process.env.HTTP_PORT) || 3001,
   database: process.env.DATABASE || "./database.sqlite3",
+  sessions_database: process.env.SESSIONS_DATABASE || "./sessions",
   db_limit: Number(process.env.DB_LIMIT) || 500,
   db_limit_log: Number(process.env.DB_LIMIT_LOG) || 100000,
   soundpath: process.env.SOUNDPATH || "/public/media/",

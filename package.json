@@ -15,7 +15,6 @@
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.11.1",
     "body-parser": "^2.3.0",
-    "connect-sqlite3": "^0.9.16",
     "console-stamp": "^3.1.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",

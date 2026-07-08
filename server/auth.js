@@ -1,9 +1,9 @@
 module.exports = (app, app_cfg, sql, bcrypt, passport, io, logger) => {
   const session = require("express-session");
-  const SQLiteStore = require("connect-sqlite3")(session);
+  const SQLiteSessionStore = require("./session_store.js")(app_cfg, logger);
   const LocalStrategy = require("passport-local").Strategy;
   const CertStrategy = require("passport-trusted-header").Strategy;
-  const sessionStore = new SQLiteStore();
+  const sessionStore = new SQLiteSessionStore();
 
   // JWT-Authentifizierung
   const jwt = require("jsonwebtoken");
