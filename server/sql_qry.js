@@ -803,18 +803,25 @@ module.exports = (db, app_cfg) => {
     );
   };
 
-  // Gespeicherte Routen für einen Einsatz abrufen
+  // Gespeicherte Routen (und Stationskoordinaten fürs Label) für einen Einsatz abrufen.
+  // Liefert alle alarmierten Wachen mit Koordinaten, auch wenn keine Route vorhanden ist
+  // (z.B. weil die Wache im Einsatzbereich liegt) – Client zeigt dann nur das Label an.
   const db_routen_get = (waip_id) => {
     const stmt = db.prepare(`
       SELECT DISTINCT
         w.nr_wache,
         w.name_wache,
+        w.wgs84_x,
+        w.wgs84_y,
         em.em_wgs84_route_full,
         em.em_wgs84_route_half
       FROM waip_einsatzmittel em
       JOIN waip_wachen w ON w.id = em.em_station_id
       WHERE em.em_waip_einsaetze_id = ?
-        AND (em.em_wgs84_route_full IS NOT NULL OR em.em_wgs84_route_half IS NOT NULL)
+        AND em.em_zeitstempel_alarmierung IS NOT NULL
+        AND em.em_zeitstempel_alarmierung != ''
+        AND w.wgs84_x IS NOT NULL AND w.wgs84_x != 0
+        AND w.wgs84_y IS NOT NULL AND w.wgs84_y != 0
     `);
     return stmt.all(String(waip_id));
   };

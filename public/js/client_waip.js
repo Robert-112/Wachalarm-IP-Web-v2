@@ -1526,7 +1526,25 @@ function draw_routes(routes) {
   const allBounds = [];
 
   routes.forEach(function (route) {
-    if (!route.geometry) return;
+    if (!route.geometry) {
+      // Keine Route vorhanden (z.B. Wache liegt im Einsatzbereich) -> nur Label anzeigen
+      if (route.coords) {
+        const labelMarker = L.circleMarker([route.coords[0], route.coords[1]], {
+          radius: 8,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: route.color,
+          fillOpacity: 1.0,
+        }).addTo(map);
+        if (route.name_wache) labelMarker.bindTooltip(route.name_wache, { permanent: true, direction: "top", offset: [0, -10], className: "route-label" });
+        routeLayers.push(labelMarker);
+        try {
+          const b = L.latLngBounds([route.coords, route.coords]);
+          if (b.isValid()) allBounds.push(b);
+        } catch (_) {}
+      }
+      return;
+    }
 
     // Schatten
     const shadow = L.geoJSON(route.geometry, {

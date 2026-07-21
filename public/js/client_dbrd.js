@@ -83,10 +83,13 @@ function fitFullscreenMap() {
   fullscreenMap.invalidateSize();
   var allBounds = [];
   currentRoutes.forEach(function (route) {
-    if (!route.geometry) return;
     try {
-      var b = L.geoJSON(route.geometry).getBounds();
-      if (b.isValid()) allBounds.push(b);
+      if (route.geometry) {
+        var b = L.geoJSON(route.geometry).getBounds();
+        if (b.isValid()) allBounds.push(b);
+      } else if (route.coords) {
+        allBounds.push(L.latLngBounds([route.coords, route.coords]));
+      }
     } catch (_) {}
   });
   if (allBounds.length) {
@@ -169,7 +172,17 @@ function drawRoutesOnMap(routes, targetMap, layerArr) {
   layerArr.length = 0;
   if (!routes || !routes.length) return;
   routes.forEach(function (route) {
-    if (!route.geometry) return;
+    if (!route.geometry) {
+      // Keine Route vorhanden (z.B. Wache liegt im Einsatzbereich) -> nur Label anzeigen
+      if (route.coords) {
+        var labelMarker = L.circleMarker([route.coords[0], route.coords[1]], {
+          radius: 8, color: "#ffffff", weight: 2, fillColor: route.color, fillOpacity: 1.0,
+        }).addTo(targetMap);
+        if (route.name_wache) labelMarker.bindTooltip(route.name_wache, { permanent: true, direction: "top", offset: [0, -10], className: "route-label" });
+        layerArr.push(labelMarker);
+      }
+      return;
+    }
     var shadow = L.geoJSON(route.geometry, {
       style: { color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round" },
     }).addTo(targetMap);
@@ -749,11 +762,14 @@ socket.on("io.routes", function (routes) {
   // Bounds direkt aus Koordinaten berechnen statt temporärer GeoJSON-Objekte (kein DOM-Overhead).
   var allBounds = [];
   currentRoutes.forEach(function (route) {
-    if (!route.geometry || !route.geometry.coordinates || !route.geometry.coordinates.length) return;
     try {
-      var latlngs = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
-      var b = L.latLngBounds(latlngs);
-      if (b.isValid()) allBounds.push(b);
+      if (route.geometry && route.geometry.coordinates && route.geometry.coordinates.length) {
+        var latlngs = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+        var b = L.latLngBounds(latlngs);
+        if (b.isValid()) allBounds.push(b);
+      } else if (route.coords) {
+        allBounds.push(L.latLngBounds([route.coords, route.coords]));
+      }
     } catch (_) {}
   });
   if (allBounds.length) {
