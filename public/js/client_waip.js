@@ -508,7 +508,12 @@ let geojson = L.geoJSON().addTo(map);
 
 // OSRM-Routen-Layer und Inset-Map
 let routeLayers = [];
+let currentRoutes = [];
 let insetMap = null;
+
+// Routen-Versatz ist pixelbasiert -> nach jedem Zoomwechsel neu zeichnen, damit der
+// Abstand zwischen mehreren Routen auf jeder Zoomstufe gleich breit wirkt
+map.on("zoomend", function () { draw_routes(currentRoutes); });
 
 /* ########################### */
 /* ######## SOCKET.IO ######## */
@@ -955,7 +960,8 @@ socket.on("io.new_waip", function (data) {
 
 // OSRM-Routen empfangen und auf der Karte zeichnen
 socket.on("io.routes", function (routes) {
-  draw_routes(routes);
+  currentRoutes = routes || [];
+  draw_routes(currentRoutes);
 });
 
 socket.on("io.new_rmld", function (data) {
@@ -1519,11 +1525,51 @@ function clear_route_layers() {
   routeLayers = [];
 }
 
+// Versetzt eine Latlng-Liste um offsetPx Pixel senkrecht zur Linie. Wird bei jedem Redraw mit
+// dem aktuellen Zoom neu berechnet, damit der Versatz auf jeder Zoomstufe gleich breit wirkt
+// (analog zum Prinzip von Leaflet.PolylineOffset, hier ohne Zusatz-Abhängigkeit selbst umgesetzt).
+function offsetLatLngs(targetMap, latlngs, offsetPx) {
+  if (!offsetPx || latlngs.length < 2) return latlngs;
+  const zoom = targetMap.getZoom();
+  const pts = latlngs.map(function (ll) { return targetMap.project(ll, zoom); });
+  const n = pts.length;
+  const segPerp = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    segPerp.push({ x: -dy / len, y: dx / len });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    let perp;
+    if (i === 0) perp = segPerp[0];
+    else if (i === n - 1) perp = segPerp[n - 2];
+    else {
+      const sx = segPerp[i - 1].x + segPerp[i].x, sy = segPerp[i - 1].y + segPerp[i].y;
+      const slen = Math.sqrt(sx * sx + sy * sy) || 1;
+      perp = { x: sx / slen, y: sy / slen };
+    }
+    out.push(L.point(pts[i].x + perp.x * offsetPx, pts[i].y + perp.y * offsetPx));
+  }
+  return out.map(function (p) { return targetMap.unproject(p, zoom); });
+}
+
+// Feste Reihenfolge nach Wachennummer, damit der Versatz zwischen Redraws stabil bleibt
+function assignRouteOffsets(routes) {
+  const step = 5; // Pixel Abstand zwischen benachbarten Routen
+  const sorted = routes.filter(function (r) { return r.geometry; })
+    .slice().sort(function (a, b) { return String(a.nr_wache).localeCompare(String(b.nr_wache)); });
+  const offsets = new Map();
+  sorted.forEach(function (r, i) { offsets.set(r, (i - (sorted.length - 1) / 2) * step); });
+  return offsets;
+}
+
 function draw_routes(routes) {
   clear_route_layers();
   if (!routes || !routes.length) return;
 
   const allBounds = [];
+  const offsets = assignRouteOffsets(routes);
 
   routes.forEach(function (route) {
     if (!route.geometry) {
@@ -1546,29 +1592,30 @@ function draw_routes(routes) {
       return;
     }
 
+    const latlngs = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+    const offsetLL = offsetLatLngs(map, latlngs, offsets.get(route) || 0);
+
     // Schatten
-    const shadow = L.geoJSON(route.geometry, {
-      style: { color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round" },
+    const shadow = L.polyline(offsetLL, {
+      color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(shadow);
 
     // Halo (weißer Hintergrund) für besseren Kontrast
-    const halo = L.geoJSON(route.geometry, {
-      style: { color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round" },
+    const halo = L.polyline(offsetLL, {
+      color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(halo);
 
     // Farbige Linie
-    const layer = L.geoJSON(route.geometry, {
-      style: { color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round" },
+    const layer = L.polyline(offsetLL, {
+      color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(layer);
 
     // Startpunkt-Marker (Wache)
-    const coords = route.geometry.coordinates;
-    if (coords && coords.length) {
-      const start = coords[0]; // GeoJSON: [lng, lat]
-      const startMarker = L.circleMarker([start[1], start[0]], {
+    if (offsetLL.length) {
+      const startMarker = L.circleMarker(offsetLL[0], {
         radius: 8,
         color: "#ffffff",
         weight: 2,

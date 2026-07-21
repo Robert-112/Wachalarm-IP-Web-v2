@@ -59,6 +59,9 @@ var map = L.map("map", {
   keyboard: false,
   tap: false,
 }).setView([51.733005, 14.338048], 13);
+// Routen-Versatz (siehe offsetLatLngs) ist pixelbasiert -> nach jedem (auch programmatischen)
+// Zoomwechsel neu zeichnen, damit der Abstand zwischen den Routen konsistent bleibt
+map.on("zoomend", function () { drawRoutesOnMap(currentRoutes, map, routeLayers); });
 // Custom Control für Vollbildanzeige
 var FullscreenControl = L.Control.extend({
   options: { position: "bottomright" },
@@ -111,6 +114,7 @@ function initFullscreenMap() {
   }
   fullscreenMap = L.map("map_fullscreen", { zoomControl: true, attributionControl: false });
   AddMapLayer(fullscreenMap);
+  fullscreenMap.on("zoomend", function () { drawRoutesOnMap(currentRoutes, fullscreenMap, fullscreenRouteLayers); });
   // Initialen View setzen damit Layer sofort korrekt gerendert werden
   if (currentGeometry && currentGeometry.type === "point" && currentGeometry.coords) {
     fullscreenMap.setView(currentGeometry.coords, 12);
@@ -167,10 +171,50 @@ var routeLayers = [];
 var fullscreenRouteLayers = [];
 var currentRoutes = [];
 
+// Versetzt eine Latlng-Liste um offsetPx Pixel senkrecht zur Linie. Wird bei jedem Redraw mit
+// dem aktuellen Zoom neu berechnet, damit der Versatz auf jeder Zoomstufe gleich breit wirkt
+// (analog zum Prinzip von Leaflet.PolylineOffset, hier ohne Zusatz-Abhängigkeit selbst umgesetzt).
+function offsetLatLngs(targetMap, latlngs, offsetPx) {
+  if (!offsetPx || latlngs.length < 2) return latlngs;
+  var zoom = targetMap.getZoom();
+  var pts = latlngs.map(function (ll) { return targetMap.project(ll, zoom); });
+  var n = pts.length;
+  var segPerp = [];
+  for (var i = 0; i < n - 1; i++) {
+    var dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    segPerp.push({ x: -dy / len, y: dx / len });
+  }
+  var out = [];
+  for (var i = 0; i < n; i++) {
+    var perp;
+    if (i === 0) perp = segPerp[0];
+    else if (i === n - 1) perp = segPerp[n - 2];
+    else {
+      var sx = segPerp[i - 1].x + segPerp[i].x, sy = segPerp[i - 1].y + segPerp[i].y;
+      var slen = Math.sqrt(sx * sx + sy * sy) || 1;
+      perp = { x: sx / slen, y: sy / slen };
+    }
+    out.push(L.point(pts[i].x + perp.x * offsetPx, pts[i].y + perp.y * offsetPx));
+  }
+  return out.map(function (p) { return targetMap.unproject(p, zoom); });
+}
+
+// Feste Reihenfolge nach Wachennummer, damit der Versatz zwischen Redraws stabil bleibt
+function assignRouteOffsets(routes) {
+  var step = 5; // Pixel Abstand zwischen benachbarten Routen
+  var sorted = routes.filter(function (r) { return r.geometry; })
+    .slice().sort(function (a, b) { return String(a.nr_wache).localeCompare(String(b.nr_wache)); });
+  var offsets = new Map();
+  sorted.forEach(function (r, i) { offsets.set(r, (i - (sorted.length - 1) / 2) * step); });
+  return offsets;
+}
+
 function drawRoutesOnMap(routes, targetMap, layerArr) {
   layerArr.forEach(function (l) { targetMap.removeLayer(l); });
   layerArr.length = 0;
   if (!routes || !routes.length) return;
+  var offsets = assignRouteOffsets(routes);
   routes.forEach(function (route) {
     if (!route.geometry) {
       // Keine Route vorhanden (z.B. Wache liegt im Einsatzbereich) -> nur Label anzeigen
@@ -183,22 +227,22 @@ function drawRoutesOnMap(routes, targetMap, layerArr) {
       }
       return;
     }
-    var shadow = L.geoJSON(route.geometry, {
-      style: { color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round" },
+    var latlngs = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+    var offsetLL = offsetLatLngs(targetMap, latlngs, offsets.get(route) || 0);
+    var shadow = L.polyline(offsetLL, {
+      color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round",
     }).addTo(targetMap);
     layerArr.push(shadow);
-    var halo = L.geoJSON(route.geometry, {
-      style: { color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round" },
+    var halo = L.polyline(offsetLL, {
+      color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round",
     }).addTo(targetMap);
     layerArr.push(halo);
-    var layer = L.geoJSON(route.geometry, {
-      style: { color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round" },
+    var layer = L.polyline(offsetLL, {
+      color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round",
     }).addTo(targetMap);
     layerArr.push(layer);
-    var coords = route.geometry.coordinates;
-    if (coords && coords.length) {
-      var start = coords[0];
-      var startMarker = L.circleMarker([start[1], start[0]], {
+    if (offsetLL.length) {
+      var startMarker = L.circleMarker(offsetLL[0], {
         radius: 8, color: "#ffffff", weight: 2, fillColor: route.color, fillOpacity: 1.0,
       }).addTo(targetMap);
       if (route.name_wache) startMarker.bindTooltip(route.name_wache, { permanent: true, direction: "top", offset: [0, -10], className: "route-label" });
