@@ -1337,6 +1337,23 @@ module.exports = (db, app_cfg) => {
     });
   };
 
+  // Ergebnis der Netzkopplungspruefung eines Clients speichern
+  const db_client_update_netzkopplung = (socket, netzkopplung) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          UPDATE waip_clients
+          SET netzkopplung = ?, netzkopplung_checked_at = DATETIME(CURRENT_TIMESTAMP, 'LOCALTIME')
+          WHERE socket_id = ?;
+        `);
+        const info = stmt.run(netzkopplung ? 1 : 0, socket.id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Speichern der Netzkopplungspruefung: " + error));
+      }
+    });
+  };
+
   // Monitoring-Kennzahlen für Check_MK bereitstellen
   const db_monitoring_get_stats = () => {
     return new Promise((resolve, reject) => {
@@ -2563,6 +2580,7 @@ module.exports = (db, app_cfg) => {
     db_tts_ortsdaten,
     db_client_update_status,
     db_client_get_connected,
+    db_client_update_netzkopplung,
     db_monitoring_get_stats,
     db_client_delete,
     db_client_check_waip_id,

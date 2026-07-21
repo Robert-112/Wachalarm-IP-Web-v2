@@ -68,6 +68,12 @@ app_cfg.public = {
   ext_privacy: (process.env.EXT_PRIVACY ?? "false") === "true",
   url_privacy: process.env.URL_PRIVACY || "https://www.nix.nix/datenschutz",
   show_login: (process.env.SHOW_LOGIN ?? "true") === "true",
+  // Domains, gegen die der Alarmmonitor-Client periodisch prueft, ob eine unzulaessige
+  // Netzkopplung (Internet-Zugriff aus dem eigentlich isolierten Netz) vorliegt.
+  netzkopplung_check_urls: (process.env.NETZKOPPLUNG_CHECK_URLS || "https://www.google.com/favicon.ico,https://www.heise.de/favicon.ico")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean),
 };
 
 app_cfg.osrm = {

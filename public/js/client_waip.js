@@ -525,7 +525,77 @@ socket.on("connect", function () {
   $("#waipModal").modal("hide");
   // TODO: bei Reconnect des Clients durch Verbindungsabbruch, erneut Daten anfordern
   console.log("Socket-Verbindung hergestellt, WAIP:", wachen_id);
+  startNetzkopplungCheck();
 });
+
+/* ################################# */
+/* ######## NETZKOPPLUNG ########## */
+/* ################################# */
+// Prueft periodisch per Image-Load, ob bekannte Internet-Domains erreichbar sind.
+// Ist dies der Fall, deutet das auf eine unzulaessige Netzkopplung hin (der
+// Alarmmonitor soll nur aus internetlosen Netzen erreichbar sein).
+const NETZKOPPLUNG_TIMEOUT_MS = 5000;
+const NETZKOPPLUNG_INTERVAL_MS = 8 * 60 * 60 * 1000; // ca. alle 8 Stunden (2-3x/Tag)
+const NETZKOPPLUNG_JITTER_MS = 60 * 60 * 1000; // +/- 1 Stunde, damit nicht alle Clients gleichzeitig pruefen
+let _netzkopplungStarted = false;
+
+function checkUrlReachable(url) {
+  return new Promise(function (resolve) {
+    const img = new Image();
+    let done = false;
+    const timer = setTimeout(function () {
+      if (!done) {
+        done = true;
+        img.src = ""; // laufenden Ladevorgang abbrechen
+        resolve(false);
+      }
+    }, NETZKOPPLUNG_TIMEOUT_MS);
+
+    img.onload = function () {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(true);
+      }
+    };
+    img.onerror = function () {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
+    };
+    img.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+  });
+}
+
+function runNetzkopplungCheck(urls) {
+  Promise.all(urls.map(checkUrlReachable)).then(function (results) {
+    // Nur als Netzkopplung werten, wenn alle Testadressen erreichbar waren
+    // (reduziert False-Positives durch einzelne, unabhaengig blockierte Domains).
+    const netzkopplung = results.every(Boolean);
+    socket.emit("netzkopplung_check", { netzkopplung: netzkopplung });
+    console.log("Netzkopplungspruefung durchgefuehrt, Ergebnis:", netzkopplung, results);
+  });
+}
+
+function startNetzkopplungCheck() {
+  if (_netzkopplungStarted) return; // nur einmal pro Seitenaufruf starten (nicht bei jedem Reconnect)
+  const urls = typeof netzkopplung_urls !== "undefined" ? netzkopplung_urls : [];
+  if (!urls || urls.length === 0) return;
+  _netzkopplungStarted = true;
+
+  const scheduleNext = function (delay_ms) {
+    setTimeout(function () {
+      runNetzkopplungCheck(urls);
+      const jitter = Math.floor(Math.random() * (2 * NETZKOPPLUNG_JITTER_MS + 1)) - NETZKOPPLUNG_JITTER_MS;
+      scheduleNext(NETZKOPPLUNG_INTERVAL_MS + jitter);
+    }, delay_ms);
+  };
+
+  // erste Pruefung zeitversetzt (30-90s) nach Verbindungsaufbau, um Seitenaufbau nicht zu belasten
+  scheduleNext(30000 + Math.floor(Math.random() * 60000));
+}
 
 socket.on("connect_error", function (err) {
   $("#waipModalTitle").text("FEHLER");
