@@ -508,7 +508,12 @@ let geojson = L.geoJSON().addTo(map);
 
 // OSRM-Routen-Layer und Inset-Map
 let routeLayers = [];
+let currentRoutes = [];
 let insetMap = null;
+
+// Routen-Versatz ist pixelbasiert -> nach jedem Zoomwechsel neu zeichnen, damit der
+// Abstand zwischen mehreren Routen auf jeder Zoomstufe gleich breit wirkt
+map.on("zoomend", function () { draw_routes(currentRoutes); });
 
 /* ########################### */
 /* ######## SOCKET.IO ######## */
@@ -525,7 +530,77 @@ socket.on("connect", function () {
   $("#waipModal").modal("hide");
   // TODO: bei Reconnect des Clients durch Verbindungsabbruch, erneut Daten anfordern
   console.log("Socket-Verbindung hergestellt, WAIP:", wachen_id);
+  startNetzkopplungCheck();
 });
+
+/* ################################# */
+/* ######## NETZKOPPLUNG ########## */
+/* ################################# */
+// Prueft periodisch per Image-Load, ob bekannte Internet-Domains erreichbar sind.
+// Ist dies der Fall, deutet das auf eine unzulaessige Netzkopplung hin (der
+// Alarmmonitor soll nur aus internetlosen Netzen erreichbar sein).
+const NETZKOPPLUNG_TIMEOUT_MS = 5000;
+const NETZKOPPLUNG_INTERVAL_MS = 8 * 60 * 60 * 1000; // ca. alle 8 Stunden (2-3x/Tag)
+const NETZKOPPLUNG_JITTER_MS = 60 * 60 * 1000; // +/- 1 Stunde, damit nicht alle Clients gleichzeitig pruefen
+let _netzkopplungStarted = false;
+
+function checkUrlReachable(url) {
+  return new Promise(function (resolve) {
+    const img = new Image();
+    let done = false;
+    const timer = setTimeout(function () {
+      if (!done) {
+        done = true;
+        img.src = ""; // laufenden Ladevorgang abbrechen
+        resolve(false);
+      }
+    }, NETZKOPPLUNG_TIMEOUT_MS);
+
+    img.onload = function () {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(true);
+      }
+    };
+    img.onerror = function () {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
+    };
+    img.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+  });
+}
+
+function runNetzkopplungCheck(urls) {
+  Promise.all(urls.map(checkUrlReachable)).then(function (results) {
+    // Nur als Netzkopplung werten, wenn alle Testadressen erreichbar waren
+    // (reduziert False-Positives durch einzelne, unabhaengig blockierte Domains).
+    const netzkopplung = results.every(Boolean);
+    socket.emit("netzkopplung_check", { netzkopplung: netzkopplung });
+    console.log("Netzkopplungspruefung durchgefuehrt, Ergebnis:", netzkopplung, results);
+  });
+}
+
+function startNetzkopplungCheck() {
+  if (_netzkopplungStarted) return; // nur einmal pro Seitenaufruf starten (nicht bei jedem Reconnect)
+  const urls = typeof netzkopplung_urls !== "undefined" ? netzkopplung_urls : [];
+  if (!urls || urls.length === 0) return;
+  _netzkopplungStarted = true;
+
+  const scheduleNext = function (delay_ms) {
+    setTimeout(function () {
+      runNetzkopplungCheck(urls);
+      const jitter = Math.floor(Math.random() * (2 * NETZKOPPLUNG_JITTER_MS + 1)) - NETZKOPPLUNG_JITTER_MS;
+      scheduleNext(NETZKOPPLUNG_INTERVAL_MS + jitter);
+    }, delay_ms);
+  };
+
+  // erste Pruefung zeitversetzt (30-90s) nach Verbindungsaufbau, um Seitenaufbau nicht zu belasten
+  scheduleNext(30000 + Math.floor(Math.random() * 60000));
+}
 
 socket.on("connect_error", function (err) {
   $("#waipModalTitle").text("FEHLER");
@@ -885,7 +960,8 @@ socket.on("io.new_waip", function (data) {
 
 // OSRM-Routen empfangen und auf der Karte zeichnen
 socket.on("io.routes", function (routes) {
-  draw_routes(routes);
+  currentRoutes = routes || [];
+  draw_routes(currentRoutes);
 });
 
 socket.on("io.new_rmld", function (data) {
@@ -1449,38 +1525,97 @@ function clear_route_layers() {
   routeLayers = [];
 }
 
+// Versetzt eine Latlng-Liste um offsetPx Pixel senkrecht zur Linie. Wird bei jedem Redraw mit
+// dem aktuellen Zoom neu berechnet, damit der Versatz auf jeder Zoomstufe gleich breit wirkt
+// (analog zum Prinzip von Leaflet.PolylineOffset, hier ohne Zusatz-Abhängigkeit selbst umgesetzt).
+function offsetLatLngs(targetMap, latlngs, offsetPx) {
+  if (!offsetPx || latlngs.length < 2) return latlngs;
+  const zoom = targetMap.getZoom();
+  const pts = latlngs.map(function (ll) { return targetMap.project(ll, zoom); });
+  const n = pts.length;
+  const segPerp = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    segPerp.push({ x: -dy / len, y: dx / len });
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    let perp;
+    if (i === 0) perp = segPerp[0];
+    else if (i === n - 1) perp = segPerp[n - 2];
+    else {
+      const sx = segPerp[i - 1].x + segPerp[i].x, sy = segPerp[i - 1].y + segPerp[i].y;
+      const slen = Math.sqrt(sx * sx + sy * sy) || 1;
+      perp = { x: sx / slen, y: sy / slen };
+    }
+    out.push(L.point(pts[i].x + perp.x * offsetPx, pts[i].y + perp.y * offsetPx));
+  }
+  return out.map(function (p) { return targetMap.unproject(p, zoom); });
+}
+
+// Feste Reihenfolge nach Wachennummer, damit der Versatz zwischen Redraws stabil bleibt
+function assignRouteOffsets(routes) {
+  const step = 5; // Pixel Abstand zwischen benachbarten Routen
+  const sorted = routes.filter(function (r) { return r.geometry; })
+    .slice().sort(function (a, b) { return String(a.nr_wache).localeCompare(String(b.nr_wache)); });
+  const offsets = new Map();
+  sorted.forEach(function (r, i) { offsets.set(r, (i - (sorted.length - 1) / 2) * step); });
+  return offsets;
+}
+
 function draw_routes(routes) {
   clear_route_layers();
   if (!routes || !routes.length) return;
 
   const allBounds = [];
+  const offsets = assignRouteOffsets(routes);
 
   routes.forEach(function (route) {
-    if (!route.geometry) return;
+    if (!route.geometry) {
+      // Keine Route vorhanden (z.B. Wache liegt im Einsatzbereich) -> nur Label anzeigen
+      if (route.coords) {
+        const labelMarker = L.circleMarker([route.coords[0], route.coords[1]], {
+          radius: 8,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: route.color,
+          fillOpacity: 1.0,
+        }).addTo(map);
+        if (route.name_wache) labelMarker.bindTooltip(route.name_wache, { permanent: true, direction: "top", offset: [0, -10], className: "route-label" });
+        routeLayers.push(labelMarker);
+        try {
+          const b = L.latLngBounds([route.coords, route.coords]);
+          if (b.isValid()) allBounds.push(b);
+        } catch (_) {}
+      }
+      return;
+    }
+
+    const latlngs = route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
+    const offsetLL = offsetLatLngs(map, latlngs, offsets.get(route) || 0);
 
     // Schatten
-    const shadow = L.geoJSON(route.geometry, {
-      style: { color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round" },
+    const shadow = L.polyline(offsetLL, {
+      color: "#000000", weight: 10, opacity: 0.18, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(shadow);
 
     // Halo (weißer Hintergrund) für besseren Kontrast
-    const halo = L.geoJSON(route.geometry, {
-      style: { color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round" },
+    const halo = L.polyline(offsetLL, {
+      color: "#ffffff", weight: 5, opacity: 0.65, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(halo);
 
     // Farbige Linie
-    const layer = L.geoJSON(route.geometry, {
-      style: { color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round" },
+    const layer = L.polyline(offsetLL, {
+      color: route.color, weight: 4, opacity: 1.0, lineCap: "round", lineJoin: "round",
     }).addTo(map);
     routeLayers.push(layer);
 
     // Startpunkt-Marker (Wache)
-    const coords = route.geometry.coordinates;
-    if (coords && coords.length) {
-      const start = coords[0]; // GeoJSON: [lng, lat]
-      const startMarker = L.circleMarker([start[1], start[0]], {
+    if (offsetLL.length) {
+      const startMarker = L.circleMarker(offsetLL[0], {
         radius: 8,
         color: "#ffffff",
         weight: 2,

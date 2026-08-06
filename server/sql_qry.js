@@ -803,18 +803,25 @@ module.exports = (db, app_cfg) => {
     );
   };
 
-  // Gespeicherte Routen für einen Einsatz abrufen
+  // Gespeicherte Routen (und Stationskoordinaten fürs Label) für einen Einsatz abrufen.
+  // Liefert alle alarmierten Wachen mit Koordinaten, auch wenn keine Route vorhanden ist
+  // (z.B. weil die Wache im Einsatzbereich liegt) – Client zeigt dann nur das Label an.
   const db_routen_get = (waip_id) => {
     const stmt = db.prepare(`
       SELECT DISTINCT
         w.nr_wache,
         w.name_wache,
+        w.wgs84_x,
+        w.wgs84_y,
         em.em_wgs84_route_full,
         em.em_wgs84_route_half
       FROM waip_einsatzmittel em
       JOIN waip_wachen w ON w.id = em.em_station_id
       WHERE em.em_waip_einsaetze_id = ?
-        AND (em.em_wgs84_route_full IS NOT NULL OR em.em_wgs84_route_half IS NOT NULL)
+        AND em.em_zeitstempel_alarmierung IS NOT NULL
+        AND em.em_zeitstempel_alarmierung != ''
+        AND w.wgs84_x IS NOT NULL AND w.wgs84_x != 0
+        AND w.wgs84_y IS NOT NULL AND w.wgs84_y != 0
     `);
     return stmt.all(String(waip_id));
   };
@@ -1337,6 +1344,23 @@ module.exports = (db, app_cfg) => {
     });
   };
 
+  // Ergebnis der Netzkopplungspruefung eines Clients speichern
+  const db_client_update_netzkopplung = (socket, netzkopplung) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          UPDATE waip_clients
+          SET netzkopplung = ?, netzkopplung_checked_at = DATETIME(CURRENT_TIMESTAMP, 'LOCALTIME')
+          WHERE socket_id = ?;
+        `);
+        const info = stmt.run(netzkopplung ? 1 : 0, socket.id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Speichern der Netzkopplungspruefung: " + error));
+      }
+    });
+  };
+
   // Monitoring-Kennzahlen für Check_MK bereitstellen
   const db_monitoring_get_stats = () => {
     return new Promise((resolve, reject) => {
@@ -1543,7 +1567,7 @@ module.exports = (db, app_cfg) => {
   };
 
   // Prüfen ob die Anzeigezeit für einen Benutzer abgelaufen ist
-  const db_client_get_alarm_anzeigbar = (socket, waip_id) => {
+  const db_client_get_alarm_anzeigbar = (socket, waip_id, wachen_alarmzeit_iso = null) => {
     return new Promise((resolve, reject) => {
       try {
         // Namespace ermitteln, im dem sich der Socket aktuelle befindet
@@ -1568,14 +1592,19 @@ module.exports = (db, app_cfg) => {
             row1.config_value = app_cfg.global.default_time_for_standby;
           }
 
-          // prüfen ob der Zeitstempel des Einsatzes + Reset-Counter nicht über der aktuellen Uhrzeit liegt
+          // prüfen ob der Zeitstempel des Einsatzes + Reset-Counter nicht über der aktuellen Uhrzeit liegt.
+          // Bei Nachalarmierung neuer Wachen bleibt we.zeitstempel auf dem Zeitpunkt der Erstalarmierung
+          // stehen (wird beim UPDATE nicht veraendert) - deshalb zusaetzlich den wachenspezifischen
+          // Alarmierungszeitpunkt (wachen_alarmzeit_iso, jüngste em_zeitstempel_alarmierung_iso dieser
+          // Wache) beruecksichtigen und den spaeteren der beiden Zeitpunkte als Basis nehmen, damit neu
+          // hinzugekommene Wachen ihr eigenes Anzeigefenster bekommen.
           const stmt2 = db.prepare(`
-            SELECT DATETIME(we.zeitstempel, ? || ' minutes') reset_time
+            SELECT DATETIME(MAX(we.zeitstempel, COALESCE(DATETIME(?, 'localtime'), we.zeitstempel)), ? || ' minutes') reset_time
             FROM waip_einsaetze we
-            WHERE we.id = ? 
-            AND DATETIME(we.zeitstempel, ? || ' minutes') > DATETIME('now', 'localtime');
+            WHERE we.id = ?
+            AND DATETIME(MAX(we.zeitstempel, COALESCE(DATETIME(?, 'localtime'), we.zeitstempel)), ? || ' minutes') > DATETIME('now', 'localtime');
           `);
-          const row2 = stmt2.get(row1.config_value, waip_id, row1.config_value);
+          const row2 = stmt2.get(wachen_alarmzeit_iso, row1.config_value, waip_id, wachen_alarmzeit_iso, row1.config_value);
 
           // null zurückgeben, wenn der Einsatz nicht mehr angezeigt werden kann, ansonsten die Uhrzeit der Reset-Time
           if (row2 == null) {
@@ -2475,6 +2504,72 @@ module.exports = (db, app_cfg) => {
     });
   };
 
+  // Alle Ersetzungen laden
+  const db_replace_get_all_full = () => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`SELECT * FROM waip_replace ORDER BY rp_typ ASC, rp_input ASC;`);
+        const rows = stmt.all();
+        resolve(rows);
+      } catch (error) {
+        reject(new Error("Fehler beim Laden aller Ersetzungen. " + error));
+      }
+    });
+  };
+
+  // Ersetzung bearbeiten
+  const db_replace_update = (replace) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+        UPDATE waip_replace SET
+          rp_typ = ?,
+          rp_input = ?,
+          rp_output = ?
+        WHERE id = ?;
+      `);
+        const info = stmt.run(replace.rp_typ, replace.rp_input, replace.rp_output, replace.id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Bearbeiten der Ersetzung. " + error));
+      }
+    });
+  };
+
+  // Ersetzung löschen
+  const db_replace_delete = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`DELETE FROM waip_replace WHERE id = ?;`);
+        const info = stmt.run(id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Löschen der Ersetzung. " + error));
+      }
+    });
+  };
+
+  // Neue Ersetzung anlegen
+  const db_replace_create = (replace) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+        INSERT INTO waip_replace (
+          rp_typ,
+          rp_input,
+          rp_output
+        ) VALUES (
+          ?, ?, ?
+        );
+      `);
+        const info = stmt.run(replace.rp_typ, replace.rp_input, replace.rp_output);
+        resolve(info.lastInsertRowid);
+      } catch (error) {
+        reject(new Error("Fehler beim Anlegen einer neuen Ersetzung. " + error));
+      }
+    });
+  };
+
   return {
     db_alarmdaten_filter_aktiv,
     db_einsatz_speichern,
@@ -2497,6 +2592,7 @@ module.exports = (db, app_cfg) => {
     db_tts_ortsdaten,
     db_client_update_status,
     db_client_get_connected,
+    db_client_update_netzkopplung,
     db_monitoring_get_stats,
     db_client_delete,
     db_client_check_waip_id,
@@ -2534,5 +2630,9 @@ module.exports = (db, app_cfg) => {
     db_route_speichern,
     db_routen_get,
     db_einsatz_get_uuid_by_id,
+    db_replace_get_all_full,
+    db_replace_update,
+    db_replace_delete,
+    db_replace_create,
   };
 };

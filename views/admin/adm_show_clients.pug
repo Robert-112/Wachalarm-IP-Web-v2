@@ -29,6 +29,8 @@ block content
                 th Raum 
                 th Client-Status (Einsatz-ID)
                 th Reset-Zeitstempel
+                th Netzkopplung
+                th Netzkopplung geprüft am
 
   script.
     let datasets = !{JSON.stringify(dataSet).replace(/<\//g, '<\\/')}
@@ -47,7 +49,12 @@ block content
           { "data": "client_nsp" },
           { "data": "client_room" },
           { "data": "client_status" },
-          { "data": "reset_timestamp" }
+          { "data": "reset_timestamp" },
+          { "data": "netzkopplung", "render": function(data) {
+              return data === 1 ? "Ja" : (data === 0 ? "Nein" : "unbekannt");
+            }
+          },
+          { "data": "netzkopplung_checked_at", "defaultContent": "-" }
         ]
       });
     });

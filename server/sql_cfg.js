@@ -126,7 +126,9 @@ module.exports = (bcrypt, app_cfg) => {
         reset_timestamp DATETIME,
         user_name TEXT,
         user_permissions TEXT,
-        user_agent TEXT
+        user_agent TEXT,
+        netzkopplung INTEGER,             -- neu: 1 = Internet-Testadressen erreichbar (Verdacht auf Netzkopplung)
+        netzkopplung_checked_at DATETIME  -- neu: Zeitpunkt der letzten Pruefung
       );
 
       -- Tabelle für einzelne Rückmeldungen
@@ -273,6 +275,21 @@ module.exports = (bcrypt, app_cfg) => {
     try {
       db.exec("ALTER TABLE waip_einsatzmittel ADD COLUMN em_wgs84_route_half TEXT");
       console.log("START - Migration: Spalte 'em_wgs84_route_half' zur Tabelle waip_einsatzmittel hinzugefuegt.");
+    } catch (e) {
+      // Spalte existiert bereits, kein Handlungsbedarf
+    }
+
+    // Migration: Netzkopplungs-Pruefung zu waip_clients hinzufügen (falls noch nicht vorhanden)
+    try {
+      db.exec("ALTER TABLE waip_clients ADD COLUMN netzkopplung INTEGER");
+      console.log("START - Migration: Spalte 'netzkopplung' zur Tabelle waip_clients hinzugefuegt.");
+    } catch (e) {
+      // Spalte existiert bereits, kein Handlungsbedarf
+    }
+
+    try {
+      db.exec("ALTER TABLE waip_clients ADD COLUMN netzkopplung_checked_at DATETIME");
+      console.log("START - Migration: Spalte 'netzkopplung_checked_at' zur Tabelle waip_clients hinzugefuegt.");
     } catch (e) {
       // Spalte existiert bereits, kein Handlungsbedarf
     }
