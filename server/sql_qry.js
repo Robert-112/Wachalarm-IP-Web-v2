@@ -2475,6 +2475,72 @@ module.exports = (db, app_cfg) => {
     });
   };
 
+  // Alle Ersetzungen laden
+  const db_replace_get_all_full = () => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`SELECT * FROM waip_replace ORDER BY rp_typ ASC, rp_input ASC;`);
+        const rows = stmt.all();
+        resolve(rows);
+      } catch (error) {
+        reject(new Error("Fehler beim Laden aller Ersetzungen. " + error));
+      }
+    });
+  };
+
+  // Ersetzung bearbeiten
+  const db_replace_update = (replace) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+        UPDATE waip_replace SET
+          rp_typ = ?,
+          rp_input = ?,
+          rp_output = ?
+        WHERE id = ?;
+      `);
+        const info = stmt.run(replace.rp_typ, replace.rp_input, replace.rp_output, replace.id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Bearbeiten der Ersetzung. " + error));
+      }
+    });
+  };
+
+  // Ersetzung löschen
+  const db_replace_delete = (id) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`DELETE FROM waip_replace WHERE id = ?;`);
+        const info = stmt.run(id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Löschen der Ersetzung. " + error));
+      }
+    });
+  };
+
+  // Neue Ersetzung anlegen
+  const db_replace_create = (replace) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+        INSERT INTO waip_replace (
+          rp_typ,
+          rp_input,
+          rp_output
+        ) VALUES (
+          ?, ?, ?
+        );
+      `);
+        const info = stmt.run(replace.rp_typ, replace.rp_input, replace.rp_output);
+        resolve(info.lastInsertRowid);
+      } catch (error) {
+        reject(new Error("Fehler beim Anlegen einer neuen Ersetzung. " + error));
+      }
+    });
+  };
+
   return {
     db_alarmdaten_filter_aktiv,
     db_einsatz_speichern,
@@ -2534,5 +2600,9 @@ module.exports = (db, app_cfg) => {
     db_route_speichern,
     db_routen_get,
     db_einsatz_get_uuid_by_id,
+    db_replace_get_all_full,
+    db_replace_update,
+    db_replace_delete,
+    db_replace_create,
   };
 };

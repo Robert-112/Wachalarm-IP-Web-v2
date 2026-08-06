@@ -1,0 +1,85 @@
+extends ../layout
+
+block content
+  main(role='main')
+    .container-fluid
+      #info.row
+        .col-md-3
+        .col-md-6.col-xs-12
+          if error
+            .card.text-white.bg-danger.mb-3
+              .card-body
+                .row
+                  .col-9
+                    h5.card-title.ion-md-close-circle-outline  Fehler
+                    p.card-text=error
+                  .col-3.text-right
+                    button#close_info.btn.btn-info.ion-md-close
+          if success
+            .card.text-white.bg-success.mb-3
+              .card-body
+                .row
+                  .col-9
+                    h5.card-title.ion-md-checkmark-circle-outline  Erfolg
+                    p.card-text=success
+                  .col-3.text-right
+                    button#close_info.btn.btn-info.ion-md-close
+      .row
+        .col-12
+          h3 Neue Ersetzung anlegen
+        .col-12
+          form(action="/adm_edit_replace/create" method="post")
+            .form-row
+              .form-group.col-md-3
+                label Typ
+                input.form-control(type="text" name="rp_typ" required list="rp_typ_vorschlaege" title="z.B. em_tts oder orte_tts")
+              .form-group.col-md-4
+                label Eingabewert
+                input.form-control(type="text" name="rp_input" required)
+              .form-group.col-md-4
+                label Ausgabewert
+                input.form-control(type="text" name="rp_output" required)
+            datalist#rp_typ_vorschlaege
+              option(value="em_tts")
+              option(value="orte_tts")
+            button.btn.btn-success(type="submit") Anlegen
+        .col-12
+          .border-top.m-3
+        .col-12
+          h3 Ersetzungen bearbeiten
+          p Hier können Ersetzungen angelegt, bearbeitet und gelöscht werden.
+        .col-12
+          table.table.table-striped
+            thead
+              tr
+                th ID
+                th Typ
+                th Eingabewert
+                th Ausgabewert
+                th Aktion
+            tbody
+              each r in replace
+                tr
+                  // Formular für Bearbeitung der Ersetzung (eine Zeile = ein Formular)
+                  form(action="/adm_edit_replace/edit" method="post")
+                    input(type="hidden" name="id" value=r.id)
+                    td= r.id
+                    td
+                      .input-group.input-group-sm
+                        input.form-control(type="text" name="rp_typ" value=r.rp_typ required list="rp_typ_vorschlaege")
+                    td
+                      .input-group.input-group-sm
+                        input.form-control(type="text" name="rp_input" value=r.rp_input required)
+                    td
+                      .input-group.input-group-sm
+                        input.form-control(type="text" name="rp_output" value=r.rp_output required)
+                    td
+                      .btn-group(role="group")
+                        button.btn.btn-primary.btn-sm(type="submit") Speichern
+                        // Lösch-Button nutzt dasselbe Formularfeld 'id', aber eigenes Ziel via formaction
+                        button.btn.btn-danger.btn-sm(type="submit" formaction="/adm_edit_replace/delete" formmethod="post" onclick="return confirm('Ersetzung wirklich löschen?')") Löschen
+
+  script.
+    $('#close_info').on('click', function(event) {
+      $('#info').addClass( 'd-none' )
+    });
