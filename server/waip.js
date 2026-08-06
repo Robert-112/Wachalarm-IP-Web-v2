@@ -327,15 +327,12 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
         .filter((r) => !filterByWache || String(r.nr_wache).startsWith(wachen_nr))
         .map((r) => {
           const geometry_str = permissions ? r.em_wgs84_route_full : r.em_wgs84_route_half;
-          if (!geometry_str) return null;
-          return {
-            nr_wache: r.nr_wache,
-            name_wache: r.name_wache,
-            color: osrm.wachen_color(r.nr_wache),
-            geometry: JSON.parse(geometry_str),
-          };
-        })
-        .filter(Boolean);
+          const base = { nr_wache: r.nr_wache, name_wache: r.name_wache, color: osrm.wachen_color(r.nr_wache) };
+          // Keine Route vorhanden (z.B. Wache liegt im Einsatzbereich) -> nur Label an der
+          // Wachen-Position anzeigen, damit die Wache trotzdem sichtbar bleibt
+          if (!geometry_str) return { ...base, coords: [r.wgs84_x, r.wgs84_y] };
+          return { ...base, geometry: JSON.parse(geometry_str) };
+        });
 
       if (payload.length) socket.emit("io.routes", payload);
     } catch (err) {

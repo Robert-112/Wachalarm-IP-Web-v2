@@ -327,6 +327,10 @@ module.exports = function (app, sql, app_cfg, passport, auth, saver, logger) {
       const alarm = clients.filter((c) => c.client_status && c.client_status !== "Standby").length;
       lines.push(`0 waip_clients total=${total};;;0;|waip=${waip};;;0;|dbrd=${dbrd};;;0;|alarm=${alarm};;;0; ${total} Clients (${waip}x /waip, ${dbrd}x /dbrd, ${alarm}x im Einsatz)`);
 
+      // Service 1b: Netzkopplung (reine Info, kein Warning/Error)
+      const netzkopplung_count = clients.filter((c) => c.netzkopplung === 1).length;
+      lines.push(`0 waip_netzkopplung count=${netzkopplung_count};;;0; ${netzkopplung_count} Client(s) mit erreichbaren Internet-Testadressen (moegliche Netzkopplung)`);
+
       // Service 2: Einsätze in der Datenbank
       const einsatz_total = stats.einsatz.total ?? 0;
       const last_min      = stats.einsatz.last_min;

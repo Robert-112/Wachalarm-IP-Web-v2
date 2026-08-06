@@ -138,6 +138,19 @@ module.exports = (io, sql, app_cfg, logger, waip) => {
         socket.disconnect(true);
       }
     });
+
+    // Ergebnis der clientseitigen Netzkopplungspruefung entgegennehmen
+    socket.on("netzkopplung_check", async (data) => {
+      try {
+        const netzkopplung = !!(data && data.netzkopplung);
+        await sql.db_client_update_netzkopplung(socket, netzkopplung);
+        if (netzkopplung) {
+          logger.log("warn", `Client ${remote_ip} (${socket.id}) meldet erreichbare Internet-Testadressen (Verdacht auf Netzkopplung).`);
+        }
+      } catch (error) {
+        logger.log("error", `Fehler bei Verarbeitung der Netzkopplungspruefung von ${remote_ip} (${socket.id}): ${error.message}`);
+      }
+    });
   });
 
   // Dashboard

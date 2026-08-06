@@ -803,18 +803,25 @@ module.exports = (db, app_cfg) => {
     );
   };
 
-  // Gespeicherte Routen für einen Einsatz abrufen
+  // Gespeicherte Routen (und Stationskoordinaten fürs Label) für einen Einsatz abrufen.
+  // Liefert alle alarmierten Wachen mit Koordinaten, auch wenn keine Route vorhanden ist
+  // (z.B. weil die Wache im Einsatzbereich liegt) – Client zeigt dann nur das Label an.
   const db_routen_get = (waip_id) => {
     const stmt = db.prepare(`
       SELECT DISTINCT
         w.nr_wache,
         w.name_wache,
+        w.wgs84_x,
+        w.wgs84_y,
         em.em_wgs84_route_full,
         em.em_wgs84_route_half
       FROM waip_einsatzmittel em
       JOIN waip_wachen w ON w.id = em.em_station_id
       WHERE em.em_waip_einsaetze_id = ?
-        AND (em.em_wgs84_route_full IS NOT NULL OR em.em_wgs84_route_half IS NOT NULL)
+        AND em.em_zeitstempel_alarmierung IS NOT NULL
+        AND em.em_zeitstempel_alarmierung != ''
+        AND w.wgs84_x IS NOT NULL AND w.wgs84_x != 0
+        AND w.wgs84_y IS NOT NULL AND w.wgs84_y != 0
     `);
     return stmt.all(String(waip_id));
   };
@@ -1333,6 +1340,23 @@ module.exports = (db, app_cfg) => {
         }
       } catch (error) {
         reject(new Error("Fehler beim abfragen der verbundenen Clients:" + error));
+      }
+    });
+  };
+
+  // Ergebnis der Netzkopplungspruefung eines Clients speichern
+  const db_client_update_netzkopplung = (socket, netzkopplung) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const stmt = db.prepare(`
+          UPDATE waip_clients
+          SET netzkopplung = ?, netzkopplung_checked_at = DATETIME(CURRENT_TIMESTAMP, 'LOCALTIME')
+          WHERE socket_id = ?;
+        `);
+        const info = stmt.run(netzkopplung ? 1 : 0, socket.id);
+        resolve(info.changes);
+      } catch (error) {
+        reject(new Error("Fehler beim Speichern der Netzkopplungspruefung: " + error));
       }
     });
   };
@@ -2563,6 +2587,7 @@ module.exports = (db, app_cfg) => {
     db_tts_ortsdaten,
     db_client_update_status,
     db_client_get_connected,
+    db_client_update_netzkopplung,
     db_monitoring_get_stats,
     db_client_delete,
     db_client_check_waip_id,
