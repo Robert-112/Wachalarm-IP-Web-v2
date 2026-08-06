@@ -103,6 +103,17 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
               (!einsatzdaten.em_alarmiert || einsatzdaten.em_alarmiert.length === 0) &&
               (!einsatzdaten.em_weitere || einsatzdaten.em_weitere.length === 0);
 
+            // jüngster Alarmierungszeitpunkt der für DIESE Wache alarmierten Einsatzmittel ermitteln.
+            // Wichtig bei Nachalarmierung: eine neu hinzugekommene Wache hat einen eigenen, viel
+            // aktuelleren Alarmzeitpunkt als der Einsatz insgesamt (der Einsatz-Zeitstempel bleibt auf
+            // der Erstalarmierung stehen), damit bekommt auch sie noch ihr eigenes Anzeigefenster.
+            const wachen_alarmzeit_iso =
+              (einsatzdaten.em_alarmiert || [])
+                .map((em) => em.zeit_alarmierung_iso)
+                .filter(Boolean)
+                .sort()
+                .pop() || null;
+
             // an jeden Socket entsprechende Daten senden
             for (const socket of sockets) {
               if (keineAktivenEinsatzmittel) {
@@ -112,7 +123,7 @@ module.exports = (io, sql, fs, logger, app_cfg) => {
                 resolve(false);
               } else {
                 // Prüfen ob für den Client die Anzeigezeit abgelaufen ist
-                const reset_timestamp = await sql.db_client_get_alarm_anzeigbar(socket, einsatzdaten.id);
+                const reset_timestamp = await sql.db_client_get_alarm_anzeigbar(socket, einsatzdaten.id, wachen_alarmzeit_iso);
 
                 if (!einsatzdaten || !reset_timestamp) {
                   // Standby senden

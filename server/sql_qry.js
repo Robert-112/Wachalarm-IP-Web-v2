@@ -1567,7 +1567,7 @@ module.exports = (db, app_cfg) => {
   };
 
   // Prüfen ob die Anzeigezeit für einen Benutzer abgelaufen ist
-  const db_client_get_alarm_anzeigbar = (socket, waip_id) => {
+  const db_client_get_alarm_anzeigbar = (socket, waip_id, wachen_alarmzeit_iso = null) => {
     return new Promise((resolve, reject) => {
       try {
         // Namespace ermitteln, im dem sich der Socket aktuelle befindet
@@ -1592,14 +1592,19 @@ module.exports = (db, app_cfg) => {
             row1.config_value = app_cfg.global.default_time_for_standby;
           }
 
-          // prüfen ob der Zeitstempel des Einsatzes + Reset-Counter nicht über der aktuellen Uhrzeit liegt
+          // prüfen ob der Zeitstempel des Einsatzes + Reset-Counter nicht über der aktuellen Uhrzeit liegt.
+          // Bei Nachalarmierung neuer Wachen bleibt we.zeitstempel auf dem Zeitpunkt der Erstalarmierung
+          // stehen (wird beim UPDATE nicht veraendert) - deshalb zusaetzlich den wachenspezifischen
+          // Alarmierungszeitpunkt (wachen_alarmzeit_iso, jüngste em_zeitstempel_alarmierung_iso dieser
+          // Wache) beruecksichtigen und den spaeteren der beiden Zeitpunkte als Basis nehmen, damit neu
+          // hinzugekommene Wachen ihr eigenes Anzeigefenster bekommen.
           const stmt2 = db.prepare(`
-            SELECT DATETIME(we.zeitstempel, ? || ' minutes') reset_time
+            SELECT DATETIME(MAX(we.zeitstempel, COALESCE(DATETIME(?, 'localtime'), we.zeitstempel)), ? || ' minutes') reset_time
             FROM waip_einsaetze we
-            WHERE we.id = ? 
-            AND DATETIME(we.zeitstempel, ? || ' minutes') > DATETIME('now', 'localtime');
+            WHERE we.id = ?
+            AND DATETIME(MAX(we.zeitstempel, COALESCE(DATETIME(?, 'localtime'), we.zeitstempel)), ? || ' minutes') > DATETIME('now', 'localtime');
           `);
-          const row2 = stmt2.get(row1.config_value, waip_id, row1.config_value);
+          const row2 = stmt2.get(wachen_alarmzeit_iso, row1.config_value, waip_id, wachen_alarmzeit_iso, row1.config_value);
 
           // null zurückgeben, wenn der Einsatz nicht mehr angezeigt werden kann, ansonsten die Uhrzeit der Reset-Time
           if (row2 == null) {
