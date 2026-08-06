@@ -3,6 +3,9 @@
 
 $(document).ready(function () {
   set_clock();
+  if (typeof show_login !== "undefined" && show_login && typeof user_authenticated !== "undefined" && !user_authenticated) {
+    $("#wachenname-login-icon").removeClass("d-none");
+  }
   updateWachennameAnimation();
   startRandomPositioning();
 });
@@ -505,6 +508,9 @@ let marker = L.marker(new L.LatLng(0, 0), {
 
 // GeoJSON vordefinieren
 let geojson = L.geoJSON().addTo(map);
+// true, wenn aktuell nur der Einsatzumkreis (ohne Zielkoordinaten) angezeigt wird,
+// z.B. weil der Nutzer nicht angemeldet ist bzw. keine Berechtigung hat
+let showEinsatzkreisBounds = false;
 
 // OSRM-Routen-Layer und Inset-Map
 let routeLayers = [];
@@ -512,8 +518,10 @@ let currentRoutes = [];
 let insetMap = null;
 
 // Routen-Versatz ist pixelbasiert -> nach jedem Zoomwechsel neu zeichnen, damit der
-// Abstand zwischen mehreren Routen auf jeder Zoomstufe gleich breit wirkt
-map.on("zoomend", function () { draw_routes(currentRoutes); });
+// Abstand zwischen mehreren Routen auf jeder Zoomstufe gleich breit wirkt.
+// fitBounds hier NICHT erneut aufrufen, sonst würde jeder (auch manuelle) Zoom
+// sofort wieder auf die berechneten Bounds zurückspringen.
+map.on("zoomend", function () { draw_routes(currentRoutes, false); });
 
 /* ########################### */
 /* ######## SOCKET.IO ######## */
@@ -706,6 +714,7 @@ socket.on("io.standby", function (data) {
   AddMapLayer();
   marker = L.marker(new L.LatLng(0, 0), { icon: redIcon }).addTo(map);
   geojson = L.geoJSON().addTo(map);
+  showEinsatzkreisBounds = false;
   map.setView(new L.LatLng(0, 0), 14);
   // Tableau ausblenden
   $("#waiptableau").addClass("d-none");
@@ -934,6 +943,7 @@ socket.on("io.new_waip", function (data) {
   if (data.wgs84_x && data.wgs84_y) {
     const lat = data.wgs84_x;
     const lng = data.wgs84_y;
+    showEinsatzkreisBounds = false;
     marker = L.marker(new L.LatLng(lat, lng), { icon: redIcon, pane: "zielPane" }).addTo(map);
     map.setView(new L.LatLng(lat, lng), initialZoom);
     // Inset-Karte nur bei Punkt-Einsatz mit Vollberechtigung
@@ -944,6 +954,11 @@ socket.on("io.new_waip", function (data) {
     try {
       const gjData = JSON.parse(data.geometry);
       geojson = L.geoJSON(gjData).addTo(map);
+      // Ohne Zielkoordinaten (fehlende Berechtigung) zeigen wir nur den Einsatzumkreis -
+      // dessen Bounds müssen auch beim Zeichnen der Wachen-Routen erhalten bleiben,
+      // damit der Kreis nicht durch einen späteren fitBounds auf eine einzelne Wache
+      // weggezoomt wird.
+      showEinsatzkreisBounds = true;
       const gjBounds = geojson.getBounds();
       if (gjBounds.isValid()) {
         map.fitBounds(gjBounds, { padding: [50, 50], maxZoom: initialZoom });
@@ -1564,7 +1579,8 @@ function assignRouteOffsets(routes) {
   return offsets;
 }
 
-function draw_routes(routes) {
+function draw_routes(routes, fit) {
+  if (fit === undefined) fit = true;
   clear_route_layers();
   if (!routes || !routes.length) return;
 
@@ -1632,14 +1648,27 @@ function draw_routes(routes) {
     } catch (_) {}
   });
 
-  if (allBounds.length) {
-    let combined = allBounds[0];
+  if (allBounds.length || showEinsatzkreisBounds) {
+    let combined = allBounds.length ? allBounds[0] : null;
     for (let i = 1; i < allBounds.length; i++) combined = combined.extend(allBounds[i]);
+    // Einsatzumkreis einbeziehen, falls nur dieser (statt Zielkoordinaten) angezeigt wird -
+    // sonst würde der Kreis von den Bounds der Wachen-Marker/-Routen verdrängt
+    if (showEinsatzkreisBounds) {
+      try {
+        const gjBounds = geojson.getBounds();
+        if (gjBounds.isValid()) combined = combined ? combined.extend(gjBounds) : gjBounds;
+      } catch (_) {}
+    }
+    if (!combined) return;
     // Marker-Position einbeziehen falls vorhanden
     try {
       const mPos = marker.getLatLng();
       if (mPos.lat !== 0 || mPos.lng !== 0) combined = combined.extend(mPos);
     } catch (_) {}
+
+    // Nur beim Eintreffen neuer Routendaten die Sicht anpassen, nicht bei jedem
+    // Zoomwechsel (sonst würde manuelles Zoomen sofort wieder überschrieben)
+    if (!fit) return;
 
     const insetEl = document.getElementById("map-inset");
     const insetVisible = insetEl && !insetEl.classList.contains("d-none");

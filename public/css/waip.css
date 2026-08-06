@@ -309,6 +309,12 @@ audio {
   /*padding: 0 1rem;*/
 }
 
+#wachenname-login-icon {
+  margin-left: 0.4rem;
+  font-size: 0.7em;
+  vertical-align: middle;
+}
+
 #em_alarmiert {
   font-size: 1.6vw;
 }
